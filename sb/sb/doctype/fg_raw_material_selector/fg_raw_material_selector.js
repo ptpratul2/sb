@@ -13,25 +13,25 @@ frappe.ui.form.on('FG Raw Material Selector', {
         }
 
         // Log input and character codes
-        console.log("FG Code Input:", fg_code);
-        console.log("Character Codes:", fg_code.split('').map(c => c.charCodeAt(0)));
+        // console.log("FG Code Input:", fg_code);
+        // console.log("Character Codes:", fg_code.split('').map(c => c.charCodeAt(0)));
 
         // Try regex first
         const regex = /^(\d+)\|\-\|([A-Z]+)\|(\d+)\|(\d+)$/;
         const match = fg_code.match(regex);
-        console.log("Regex Match:", match);
+        // console.log("Regex Match:", match);
 
         let a, b, l1, l2;
         if (match && match.length === 5) {
             [, a, b, l1, l2] = match;
-            console.log("Regex Parsed Successfully");
+            // console.log("Regex Parsed Successfully");
         } else {
             // Fallback to manual splitting
             console.log("Regex failed, trying manual split");
             const parts = fg_code.split("|");
             console.log("Manual Split Parts:", parts);
             if (parts.length !== 5 || parts[1] !== "-") {
-                console.log("Invalid split parts:", parts);
+                // console.log("Invalid split parts:", parts);
                 frappe.msgprint({
                     title: __("Invalid FG Code"),
                     message: __("Expected format: A|-|B|L1|L2 (e.g., 125|-|BC|400|175). Must split into 5 parts with second part as '-'."),
