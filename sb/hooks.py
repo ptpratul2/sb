@@ -48,6 +48,8 @@ app_license = "mit"
 # doctype_tree_js = {"doctype" : "public/js/doctype_tree.js"}
 # doctype_calendar_js = {"doctype" : "public/js/doctype_calendar.js"}
 
+doctype_js = {"Work Order" : "public/js/workorder.js"}
+
 # Svg Icons
 # ------------------
 # include app icons in desk
