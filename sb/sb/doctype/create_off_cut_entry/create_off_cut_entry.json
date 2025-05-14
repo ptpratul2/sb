@@ -1,18 +1,19 @@
 {
  "actions": [],
  "allow_rename": 1,
- "creation": "2025-05-14 09:39:36.608167",
+ "creation": "2025-05-14 10:12:10.140073",
  "doctype": "DocType",
  "engine": "InnoDB",
  "field_order": [
   "original_rm_code",
   "original_length",
   "balance_length",
+  "submit_button",
+  "column_break_pmva",
   "design_code",
-  "generated_item_code",
   "section_type_and_width",
-  "barcode",
-  "submit_button"
+  "generated_item_code",
+  "barcode"
  ],
  "fields": [
   {
@@ -32,10 +33,20 @@
    "label": "Balance Length"
   },
   {
+   "fieldname": "submit_button",
+   "fieldtype": "Button",
+   "label": "Submit Button"
+  },
+  {
+   "fieldname": "column_break_pmva",
+   "fieldtype": "Column Break"
+  },
+  {
    "fieldname": "design_code",
    "fieldtype": "Data",
    "label": "Design Code"
-  },{
+  },
+  {
    "fieldname": "section_type_and_width",
    "fieldtype": "Data",
    "label": "Section Type and Width"
@@ -49,15 +60,12 @@
    "fieldname": "barcode",
    "fieldtype": "Barcode",
    "label": "Barcode"
-  },
-  {
-   "fieldname": "submit_button",
-   "fieldtype": "Button",
-   "label": "Submit Button"}],
+  }
+ ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-05-14 09:48:14.784839",
+ "modified": "2025-05-14 10:14:31.540701",
  "modified_by": "Administrator",
  "module": "Sb",
  "name": "Create Off-Cut Entry",

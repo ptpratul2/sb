@@ -5,8 +5,9 @@ import frappe
 from frappe.model.document import Document
 
 
-class OffCutEntry(Document):
-	pass
+class CreateOffCutEntry(Document):
+    pass
+
 @frappe.whitelist()
 def create_offcut_item(data):
 	from frappe.model.naming import make_autoname
