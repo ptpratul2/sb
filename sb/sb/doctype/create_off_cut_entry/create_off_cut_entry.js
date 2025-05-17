@@ -80,7 +80,7 @@ frappe.ui.form.on('Create Off-Cut Entry', {
 
     submit_button: function (frm) {
         frappe.call({
-            method: "custom_offcut.api.create_offcut_item", // Server script method 
+            method: "sb.sb.api.create_offcut_item", // Server script method 
             args: {
                 data: frm.doc
             },

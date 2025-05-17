@@ -17,7 +17,8 @@ frappe.ui.form.on('FG Raw Material Selector', {
         // console.log("Character Codes:", fg_code.split('').map(c => c.charCodeAt(0)));
 
         // Try regex first
-        const regex = /^(\d+)\|\-\|([A-Z]+)\|(\d+)\|(\d+)$/;
+        const regex = /^(\d+)\|\-\|([A-Z]+)\|(\d+)\|(\d+|-)$/;
+
         const match = fg_code.match(regex);
         // console.log("Regex Match:", match);
 
@@ -80,16 +81,19 @@ frappe.ui.form.on('FG Raw Material Selector', {
             return;
         }
 
-        if (['BC', 'BCE', 'KC', 'KCE'].includes(b) && (!l2 || !/^\d+$/.test(l2))) {
-            console.log("Invalid L2:", l2);
-            frappe.msgprint({
-                title: __("Invalid FG Code"),
-                message: __("L2 must be a positive integer for CH Corner types (BC, BCE, KC, KCE)."),
-                indicator: "red"
-            });
-            frm.set_value("fg_code", "");
-            return;
+        if (['BC', 'BCE', 'KC', 'KCE'].includes(b)) {
+            if (!l2 || (l2 !== "-" && !/^\d+$/.test(l2))) {
+                console.log("Invalid L2:", l2);
+                frappe.msgprint({
+                    title: __("Invalid FG Code"),
+                    message: __("L2 must be a positive integer or '-' for CH Corner types (BC, BCE, KC, KCE)."),
+                    indicator: "red"
+                });
+                frm.set_value("fg_code", "");
+                return;
+            }
         }
+
 
         // Trigger server-side processing
         frm.refresh();

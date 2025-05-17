@@ -10,22 +10,32 @@ class FGRawMaterialSelector(Document):
             self.process_fg_code()
 
     def process_fg_code(self):
-        # Parse FG code (e.g., "125|-|BC|400|175")
+        def safe_int(val, default=0):
+            try:
+                return int(val)
+            except (ValueError, TypeError):
+                return default
+
         try:
             # Log raw input
             frappe.log_error(message=f"Raw FG Code: {self.fg_code}", title="FG Raw Material Input")
+            
             # Handle mixed delimiters
             parts = self.fg_code.replace("|-|", "|").split("|")
             frappe.log_error(message=f"Server-Side Parts: {parts}", title="FG Raw Material Parts")
+
             if len(parts) != 4:
                 frappe.throw(f"Invalid FG Code format. Expected 4 parts (A|B|L1|L2), got {len(parts)}: {parts}")
-            a = int(parts[0])
+
+            a = safe_int(parts[0])
             b = parts[1]
-            l1 = int(parts[2]) if parts[2] else 0
-            l2 = int(parts[3]) if parts[3] else 0
+            l1 = safe_int(parts[2])
+            l2 = safe_int(parts[3])
+
             frappe.log_error(message=f"Parsed: A={a}, B={b}, L1={l1}, L2={l2}", title="FG Raw Material Parsed")
-        except ValueError:
-            frappe.throw("Invalid FG Code: Numeric values required for A, L1, L2")
+
+        except Exception as e:
+            frappe.throw(f"Error parsing FG Code: {str(e)}")
 
         # Define FG groups
         ch_straight = ["B", "CP", "CPP", "CPPP", "D", "K", "PC", "PH", "PLB", "SB", "T", "TS", "W", "WR", "WRB", "WS", "WX", "WXS"]
@@ -66,32 +76,19 @@ class FGRawMaterialSelector(Document):
             (551, 575): ("300L", "275L"), (576, 600): ("300L", "300L")
         }
 
-        # Initialize raw materials
         raw_materials = []
 
-        # Step 1: Determine RM group
+        # Determine RM group
         if b in ch_straight:
-            section_type = "straight"
             section_map = l_sections_straight
         elif b in ch_corner:
-            section_type = "corner"
             section_map = l_sections_corner
         else:
             frappe.throw(f"Invalid FG Type: {b}")
 
-        # Step 2: Determine Channel or L-section
+        # Determine Channel or L-section
         if a < 300 and a in ch_sections and a % 25 == 0:
             raw_materials.append({"code": ch_sections[a], "dimension": "-", "remark": "CHANNEL SECTION"})
-        elif a in [225, 275] and a not in ch_sections:
-            for (min_a, max_a), (rm1, rm2) in section_map.items():
-                if min_a <= a <= max_a:
-                    raw_materials.append({"code": rm1, "dimension": "-", "remark": rm2})
-                    break
-        elif a < 300:
-            for (min_a, max_a), (rm1, rm2) in section_map.items():
-                if min_a <= a <= max_a:
-                    raw_materials.append({"code": rm1, "dimension": "-", "remark": rm2})
-                    break
         else:
             for (min_a, max_a), (rm1, rm2) in section_map.items():
                 if min_a <= a <= max_a:
@@ -100,7 +97,7 @@ class FGRawMaterialSelector(Document):
                         raw_materials.append({"code": rm2, "dimension": "-", "remark": "L SECTION 2"})
                     break
 
-        # Step 3: Add child parts
+        # Add child parts
         if b != "PLB":
             raw_materials.append({"code": "B SIDE RAIL", "dimension": "-16MM", "remark": "FOR ALL CH ITEMS EXCEPT PLB"})
         
@@ -124,16 +121,16 @@ class FGRawMaterialSelector(Document):
         # Log raw materials
         frappe.log_error(message=f"Raw Materials: {raw_materials}", title="FG Raw Material Output")
 
-        # Step 4: Populate child table
+        # Populate child table
         for rm in raw_materials:
             self.append("raw_materials", {
-				"raw_material_code": rm["code"],
-				"item_code": rm["code"],  # Links to Item master
-				"dimension": rm["dimension"],
-				"remark": rm["remark"],
-				"quantity": 1
-			})
-            
+                "raw_material_code": rm["code"],
+                "item_code": rm["code"],  # Links to Item master
+                "dimension": rm["dimension"],
+                "remark": rm["remark"],
+                "quantity": 1
+            })
+
 @frappe.whitelist()
 def create_bom_from_fg_selector(fg_selector_name):
     fg_doc = frappe.get_doc("FG Raw Material Selector", fg_selector_name)
