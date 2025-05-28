@@ -11,7 +11,8 @@
   "submit_button",
   "column_break_pmva",
   "design_code",
-  "section_type_and_width",
+  "section_type",
+  "width",
   "generated_item_code",
   "barcode"
  ],
@@ -47,11 +48,6 @@
    "label": "Design Code"
   },
   {
-   "fieldname": "section_type_and_width",
-   "fieldtype": "Data",
-   "label": "Section Type and Width"
-  },
-  {
    "fieldname": "generated_item_code",
    "fieldtype": "Read Only",
    "label": "Generated Item Code"
@@ -60,12 +56,22 @@
    "fieldname": "barcode",
    "fieldtype": "Barcode",
    "label": "Barcode"
+  },
+  {
+   "fieldname": "section_type",
+   "fieldtype": "Data",
+   "label": "Section Type"
+  },
+  {
+   "fieldname": "width",
+   "fieldtype": "Float",
+   "label": "Width"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-05-14 10:14:31.540701",
+ "modified": "2025-05-20 19:55:05.037526",
  "modified_by": "Administrator",
  "module": "Sb",
  "name": "Create Off-Cut Entry",

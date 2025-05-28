@@ -3,19 +3,22 @@
 
 frappe.ui.form.on('Create Off-Cut Entry', {
     original_rm_code: function (frm) {
-        frappe.call({
-            method: "frappe.client.get",
-            args: {
-                doctype: "Item",
-                name: frm.doc.original_rm_code
-            },
-            callback: function (r) {
-                if (r.message) {
-                    frm.set_value('original_length', r.message.length);
+        if (frm.doc.original_rm_code) {
+            frappe.call({
+                method: "frappe.client.get",
+                args: {
+                    doctype: "Item",
+                    name: frm.doc.original_rm_code
+                },
+                callback: function (r) {
+                    if (r.message) {
+                        frm.set_value("original_length", r.message.original_length);
+                    }
                 }
-            }
-        });
+            });
+        }
     },
+
     validate: function (frm) {
         const codeParts = frm.doc.original_rm_code.split("-");
         const sectionType = codeParts[0];
@@ -25,6 +28,7 @@ frappe.ui.form.on('Create Off-Cut Entry', {
         frm.set_value("generated_item_code", new_code);
         frm.set_value("barcode", `${new_code}-${frappe.datetime.now_date().replaceAll("-", "")}-001`);
     },
+
     submit: function (frm) {
         frappe.call({
             method: "frappe.client.insert",
@@ -47,6 +51,7 @@ frappe.ui.form.on('Create Off-Cut Entry', {
                 }
             }
         });
+
         // Add stock via stock entry
         frappe.call({
             method: "erpnext.stock.doctype.stock_entry.stock_entry.make_stock_entry",
@@ -62,31 +67,17 @@ frappe.ui.form.on('Create Off-Cut Entry', {
             }
         });
     },
-    original_rm_code: function (frm) {
-        if (frm.doc.original_rm_code) {
-            frappe.call({
-                method: "frappe.client.get", args: {
-                    doctype: "Item",
-                    name: frm.doc.original_rm_code
-                },
-                callback: function (r) {
-                    if (r.message) {
-                        frm.set_value("original_length", r.message.length);
-                    }
-                }
-            });
-        }
-    },
 
     submit_button: function (frm) {
         frappe.call({
-            method: "sb.sb.api.create_offcut_item", // Server script method 
+            method: "sb.sb.api.create_offcut_item",
             args: {
                 data: frm.doc
             },
             callback: function (r) {
                 if (r.message === "success") {
-                    frappe.msgprint("Off-Cut Item and Stock Entry created successfully."); frm.reload_doc();
+                    frappe.msgprint("Off-Cut Item and Stock Entry created successfully.");
+                    frm.reload_doc();
                 } else {
                     frappe.msgprint("Something went wrong: " + r.message);
                 }

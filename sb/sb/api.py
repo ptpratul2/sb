@@ -29,18 +29,25 @@ def create_offcut_item(data):
     item.save(ignore_permissions=True)
 
     # Determine warehouse
-    default_warehouse = frappe.get_value("Item", item.item_code, "default_warehouse") or \
-                        frappe.db.get_single_value("Stock Settings", "default_warehouse") or \
-                        "Stores - WH"
-
+    default_warehouse = frappe.get_value("Item Default",{"parent": item.item_code},"default_warehouse"
+                        ) or frappe.db.get_single_value("Stock Settings", "default_warehouse") or \
+                        "Stores - VD"
+    
     # Create Stock Entry
     stock_entry = frappe.new_doc("Stock Entry")
     stock_entry.stock_entry_type = "Material Receipt"
     stock_entry.append("items", {
         "item_code": item.item_code,
         "qty": 1,
-        "t_warehouse": frappe.get_value("Item", item.item_code, "default_warehouse") or "Stores - WH"
+        "allow_zero_valuation_rate":1,
+        "t_warehouse": frappe.get_value(
+            "Item Default",
+            {"parent": item.item_code},
+            "default_warehouse"
+        ) or "Stores - VD"
+
     })
+   
     stock_entry.save(ignore_permissions=True)
     stock_entry.submit()
 

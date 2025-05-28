@@ -1,7 +1,7 @@
 frappe.ui.form.on('FG Raw Material Selector', {
     fg_code: function(frm) {
-        // Validate FG code format
-        const fg_code = (frm.doc.fg_code || "").trim();
+        let fg_code = (frm.doc.fg_code || "").trim();
+
         if (!fg_code) {
             frappe.msgprint({
                 title: __("Invalid FG Code"),
@@ -12,90 +12,63 @@ frappe.ui.form.on('FG Raw Material Selector', {
             return;
         }
 
-        // Log input and character codes
-        // console.log("FG Code Input:", fg_code);
-        // console.log("Character Codes:", fg_code.split('').map(c => c.charCodeAt(0)));
+        const parts = fg_code.split("|");
 
-        // Try regex first
-        const regex = /^(\d+)\|\-\|([A-Z]+)\|(\d+)\|(\d+|-)$/;
-
-        const match = fg_code.match(regex);
-        // console.log("Regex Match:", match);
-
-        let a, b, l1, l2;
-        if (match && match.length === 5) {
-            [, a, b, l1, l2] = match;
-            // console.log("Regex Parsed Successfully");
-        } else {
-            // Fallback to manual splitting
-            console.log("Regex failed, trying manual split");
-            const parts = fg_code.split("|");
-            console.log("Manual Split Parts:", parts);
-            if (parts.length !== 5 || parts[1] !== "-") {
-                // console.log("Invalid split parts:", parts);
-                frappe.msgprint({
-                    title: __("Invalid FG Code"),
-                    message: __("Expected format: A|-|B|L1|L2 (e.g., 125|-|BC|400|175). Must split into 5 parts with second part as '-'."),
-                    indicator: "red"
-                });
-                frm.set_value("fg_code", "");
-                return;
-            }
-            [a, , b, l1, l2] = parts;
-        }
-
-        // Log parsed components
-        console.log("Parsed Components: A =", a, "B =", b, "L1 =", l1, "L2 =", l2);
-
-        // Validate parts
-        if (!a || !/^\d+$/.test(a)) {
-            console.log("Invalid A:", a);
+        if (parts.length !== 5) {
             frappe.msgprint({
                 title: __("Invalid FG Code"),
-                message: __("A must be a positive integer."),
+                message: __("FG Code must follow the format: a|b|fg|l1|l2"),
                 indicator: "red"
             });
             frm.set_value("fg_code", "");
             return;
         }
 
-        if (!b || !/^[A-Z]+$/.test(b)) {
-            console.log("Invalid B:", b);
-            frappe.msgprint({
-                title: __("Invalid FG Code"),
-                message: __("B must be uppercase letters."),
-                indicator: "red"
-            });
+        let [a, b, fg, l1, l2] = parts;
+
+        if (!/^\d+$/.test(a)) {
+            frappe.msgprint({ title: __("Invalid FG Code"), message: __("First part (a) must be a number."), indicator: "red" });
             frm.set_value("fg_code", "");
             return;
         }
 
-        if (!l1 || !/^\d+$/.test(l1)) {
-            console.log("Invalid L1:", l1);
-            frappe.msgprint({
-                title: __("Invalid FG Code"),
-                message: __("L1 must be a positive integer."),
-                indicator: "red"
-            });
+        if (!(b === "-" || /^\d+$/.test(b))) {
+            frappe.msgprint({ title: __("Invalid FG Code"), message: __("Second part (b) must be '-' or a number."), indicator: "red" });
             frm.set_value("fg_code", "");
             return;
         }
 
-        if (['BC', 'BCE', 'KC', 'KCE'].includes(b)) {
-            if (!l2 || (l2 !== "-" && !/^\d+$/.test(l2))) {
-                console.log("Invalid L2:", l2);
-                frappe.msgprint({
-                    title: __("Invalid FG Code"),
-                    message: __("L2 must be a positive integer or '-' for CH Corner types (BC, BCE, KC, KCE)."),
-                    indicator: "red"
-                });
-                frm.set_value("fg_code", "");
-                return;
-            }
+        if (!/^[A-Z]+$/.test(fg)) {
+            frappe.msgprint({ title: __("Invalid FG Code"), message: __("Third part (fg) must be uppercase letters."), indicator: "red" });
+            frm.set_value("fg_code", "");
+            return;
         }
 
+        if (!/^\d+$/.test(l1)) {
+            frappe.msgprint({ title: __("Invalid FG Code"), message: __("Fourth part (l1) must be a number."), indicator: "red" });
+            frm.set_value("fg_code", "");
+            return;
+        }
 
-        // Trigger server-side processing
+        if (!(l2 === "-" || /^\d+$/.test(l2))) {
+            frappe.msgprint({ title: __("Invalid FG Code"), message: __("Fifth part (l2) must be a number or '-'."), indicator: "red" });
+            frm.set_value("fg_code", "");
+            return;
+        }
+
+        // You may use normalized value internally if needed
+        const normalized_l2 = l2 === "-" ? "" : l2;
+
+        console.log("FG Code Parts:", {
+            a, b, fg, l1, l2: normalized_l2
+        });
+
+        // ✅ Do not set back the normalized fg_code on the form!
+        // frm.set_value("fg_code", normalized_fg_code); <-- don't do this
+
+        // Optionally store cleaned parts into hidden fields if needed:
+        // frm.set_value("parsed_l2", normalized_l2);
+
         frm.refresh();
     }
 });

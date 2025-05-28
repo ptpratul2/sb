@@ -6,26 +6,56 @@
  "doctype": "DocType",
  "engine": "InnoDB",
  "field_order": [
+  "project_design_upload",
+  "column_break_tlve",
+  "project",
+  "section_break_tadf",
   "fg_code",
-  "raw_materials"
+  "raw_materials",
+  "raw_materials_display"
  ],
  "fields": [
+  {
+   "fieldname": "raw_materials",
+   "fieldtype": "Table",
+   "label": "Raw Materials",
+   "options": "FG Raw Material Item"
+  },
+  {
+   "fieldname": "project",
+   "fieldtype": "Link",
+   "label": "Project",
+   "options": "Project"
+  },
+  {
+   "fieldname": "section_break_tadf",
+   "fieldtype": "Section Break"
+  },
   {
    "fieldname": "fg_code",
    "fieldtype": "Data",
    "label": "FG Code"
   },
   {
-   "fieldname": "raw_materials",
-   "fieldtype": "Table",
-   "label": "Raw Materials",
-   "options": "FG Raw Material Item"
+   "fieldname": "project_design_upload",
+   "fieldtype": "Link",
+   "label": "Project Design Upload",
+   "options": "Project Design Upload"
+  },
+  {
+   "fieldname": "column_break_tlve",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "raw_materials_display",
+   "fieldtype": "HTML",
+   "label": "Raw Materials Display"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-05-13 17:38:15.301949",
+ "modified": "2025-05-27 12:06:12.468068",
  "modified_by": "Administrator",
  "module": "Sb",
  "name": "FG Raw Material Selector",

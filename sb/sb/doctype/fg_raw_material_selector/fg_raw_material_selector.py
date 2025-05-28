@@ -2,14 +2,80 @@
 # For license information, please see license.txt
 import frappe
 from frappe.model.document import Document
+import math
+import json
 
 class FGRawMaterialSelector(Document):
     def validate(self):
-        if self.fg_code:
+        if self.project_design_upload:
             self.raw_materials = []  # Clear existing raw materials
-            self.process_fg_code()
+            self.process_fg_codes()
 
-    def process_fg_code(self):
+    def process_fg_codes(self):
+        try:
+            # Fetch FG codes from the selected Project Design Upload's FG Components child table
+            project_design = frappe.get_doc("Project Design Upload", self.project_design_upload)
+            fg_codes = project_design.get("items", [])
+            
+            if not fg_codes:
+                frappe.msgprint(f"No FG Components found for Project Design Upload: {self.project_design_upload}")
+                frappe.log_error(message=f"No FG Components found for Project Design Upload: {self.project_design_upload}", title="FG Raw Material Error")
+                return
+
+            # Process each FG code
+            output = []
+            for fg_component in fg_codes:
+                self.fg_code = fg_component.fg_code
+                component_quantity = fg_component.quantity or 1  # Default to 1 if quantity is not set
+                component_uom = fg_component.uom  # Optional UOM from FG Components
+
+                if not self.fg_code:
+                    frappe.log_error(message=f"Empty FG Code in FG Component for Project Design Upload: {self.project_design_upload}", title="FG Raw Material Error")
+                    continue
+
+                # Process the FG code and collect raw materials
+                try:
+                    raw_materials = self.process_single_fg_code()
+                except Exception as e:
+                    frappe.log_error(message=f"Error processing FG Code '{self.fg_code}': {str(e)}", title="FG Raw Material Error")
+                    continue
+                
+                # Format output for this FG code
+                rm_table = []
+                for rm in raw_materials:
+                    rm_quantity = rm["quantity"] * component_quantity  # Scale by FG component quantity
+                    rm_entry = {
+                        "fg_code": self.fg_code,  # Add FG code to raw material entry
+                        "raw_material_code": rm["code"],
+                        "item_code": rm["code"],
+                        "dimension": rm["dimension"],
+                        "remark": rm["remark"],
+                        "quantity": rm_quantity
+                    }
+                    if component_uom:
+                        rm_entry["uom"] = component_uom  # Set UOM if available
+
+                    rm_table.append(rm_entry)
+                    self.append("raw_materials", rm_entry)
+                
+                # Add to output
+                output.append({
+                    "fg_code": self.fg_code,
+                    "raw_materials": rm_table
+                })
+
+            # Log the formatted output
+            if output:
+                frappe.log_error(message=json.dumps(output, indent=2), title="FG Raw Material Output")
+            else:
+                frappe.msgprint("No valid FG codes were processed. Check the Error Log for details.")
+                frappe.log_error(message="No valid FG codes processed.", title="FG Raw Material Error")
+
+        except Exception as e:
+            frappe.msgprint(f"Error processing FG codes: {str(e)}")
+            frappe.log_error(message=f"Error in process_fg_codes: {str(e)}", title="FG Raw Material Error")
+
+    def process_single_fg_code(self):
         def safe_int(val, default=0):
             try:
                 return int(val)
@@ -20,19 +86,20 @@ class FGRawMaterialSelector(Document):
             # Log raw input
             frappe.log_error(message=f"Raw FG Code: {self.fg_code}", title="FG Raw Material Input")
             
-            # Handle mixed delimiters
-            parts = self.fg_code.replace("|-|", "|").split("|")
+            # Handle mixed delimiters and parse FG code
+            parts = self.fg_code.split('|')
+            if len(parts) != 5:
+                frappe.throw(f"Invalid FG Code format. Expected 5 parts, got {len(parts)}: {self.fg_code}")
+
             frappe.log_error(message=f"Server-Side Parts: {parts}", title="FG Raw Material Parts")
 
-            if len(parts) != 4:
-                frappe.throw(f"Invalid FG Code format. Expected 4 parts (A|B|L1|L2), got {len(parts)}: {parts}")
-
             a = safe_int(parts[0])
-            b = parts[1]
-            l1 = safe_int(parts[2])
-            l2 = safe_int(parts[3])
+            b = safe_int(parts[1]) if parts[1] else 0
+            fg_code = parts[2]
+            l1 = safe_int(parts[3])
+            l2 = safe_int(parts[4]) if parts[4] else 0
 
-            frappe.log_error(message=f"Parsed: A={a}, B={b}, L1={l1}, L2={l2}", title="FG Raw Material Parsed")
+            frappe.log_error(message=f"Parsed: A={a}, B={b}, FG_CODE={fg_code}, L1={l1}, L2={l2}", title="FG Raw Material Parsed")
 
         except Exception as e:
             frappe.throw(f"Error parsing FG Code: {str(e)}")
@@ -40,106 +107,425 @@ class FGRawMaterialSelector(Document):
         # Define FG groups
         ch_straight = ["B", "CP", "CPP", "CPPP", "D", "K", "PC", "PH", "PLB", "SB", "T", "TS", "W", "WR", "WRB", "WS", "WX", "WXS"]
         ch_corner = ["BC", "BCE", "KC", "KCE"]
+        ic_straight = ["CC", "CCL", "CCR", "IC", "ICB", "ICT", "ICX", "LS", "LSL", "LSR", "LSW", "SL", "SLR"]
+        ic_corner = ["SC", "SCE", "SCY", "SCZ", "LSC", "LSCE"]
+        j_straight = ["JL", "JLB", "JLT", "JLX", "JR", "JRB", "JRT", "JRX", "SX"]
+        j_corner = ["SXC", "SXCE"]
+        t_straight = ["PCE", "SBE", "TSE", "WRBSE", "WRSE", "WSE", "WXSE"]
+        misc_straight = ["DP", "EB", "MB", "EC", "ECH", "ECT", "ECX", "ECB", "RK"]
         wall_types = ["T", "TS", "W", "WR", "WRB", "WS", "WX", "WXS"]
-        cp_like_types = ["CP", "CPP", "CPPP", "PH", "BC", "BCE"]  # Includes BC, BCE for pipes
+        cp_like_types = ["CP", "CPP", "CPPP", "PH"]
 
         # Channel section mappings
         ch_sections = {
-            50: "50-CHANNEL", 75: "75-CHANNEL", 100: "100-CHANNEL", 125: "125-CHANNEL",
-            150: "150-CHANNEL", 175: "175-CHANNEL", 200: "200-CHANNEL", 250: "250-CHANNEL",
-            300: "300-CHANNEL"
+            50: "50 CH", 75: "75 CH", 100: "100 CH", 125: "125 CH",
+            150: "150 CH", 175: "175 CH", 200: "200 CH", 250: "250 CH",
+            300: "300 CH"
         }
 
-        l_sections_straight = {
-            (51, 125): ("130 L", "MAIN FRAME"), (126, 149): ("155 L", "MAIN FRAME"),
-            (151, 174): ("180 L", "MAIN FRAME"), (176, 199): ("205 L", "MAIN FRAME"),
-            (201, 225): ("230 L", "MAIN FRAME"), (226, 249): ("255 L", "MAIN FRAME"),
-            (251, 275): ("280 L", "MAIN FRAME"), (276, 300): ("305 L", "MAIN FRAME"),
-            (301, 325): ("180 L", "155 L"), (326, 350): ("180 L", "180 L"),
-            (351, 375): ("205 L", "180 L"), (376, 400): ("205 L", "205 L"),
-            (401, 425): ("230 L", "205 L"), (426, 450): ("230 L", "230 L"),
-            (451, 475): ("255 L", "230 L"), (476, 500): ("255 L", "255 L"),
-            (501, 525): ("280 L", "255 L"), (526, 550): ("280 L", "280 L"),
-            (551, 575): ("305 L", "280 L"), (576, 600): ("305 L", "305 L")
+        # IC section mappings for exact matches
+        ic_sections = {
+            (100, 100): ("100 IC", "-", "IC SECTION"),
+            (125, 100, "SL"): ("125 SL", "-", "IC SECTION"),
+            (125, 100, "CC"): ("125 SL", "-", "IC SECTION"),
+            (125, 100): ("125 IC", "-", "IC SECTION"),
+            (150, 100): ("150 IC", "-", "IC SECTION")
         }
 
-        l_sections_corner = {
-            (51, 124): ("125L", "MAIN FRAME"), (126, 149): ("150L", "MAIN FRAME"),
-            (151, 174): ("175L", "MAIN FRAME"), (176, 199): ("200L", "MAIN FRAME"),
-            (201, 224): ("225L", "MAIN FRAME"), (226, 249): ("250L", "MAIN FRAME"),
-            (251, 275): ("275L", "MAIN FRAME"), (276, 300): ("300L", "MAIN FRAME"),
-            (301, 325): ("175L", "150L"), (326, 350): ("175L", "175L"),
-            (351, 375): ("200L", "175L"), (376, 400): ("200L", "200L"),
-            (401, 425): ("225L", "200L"), (426, 450): ("225L", "225L"),
-            (451, 475): ("250L", "225L"), (476, 500): ("250L", "250L"),
-            (501, 525): ("275L", "250L"), (526, 550): ("275L", "275L"),
-            (551, 575): ("300L", "275L"), (576, 600): ("300L", "300L")
+        # L-section mappings for IC straight and corner
+        ic_l_sections = {
+            (50,  125): ("130 L", "130 L", "L SECTION"),
+            (126, 150): ("155 L", "155 L", "L SECTION"),
+            (151, 175): ("180 L", "180 L", "L SECTION"),
+            (176, 200): ("205 L", "205 L", "L SECTION"),
+            (201, 225): ("230 L", "230 L", "L SECTION"),
+            (226, 250): ("255 L", "255 L", "L SECTION"),
+            (251, 275): ("280 L", "280 L", "L SECTION"),
+            (276, 300): ("305 L", "305 L", "L SECTION")
+        }
+
+        # L-section mappings for CH straight
+        ch_l_sections_straight = {
+            (51, 125): ("130 L", "MAIN FRAME", "L SECTION"),
+            (126, 149): ("155 L", "MAIN FRAME", "L SECTION"),
+            (151, 174): ("180 L", "MAIN FRAME", "L SECTION"),
+            (176, 199): ("205 L", "MAIN FRAME", "L SECTION"),
+            (201, 225): ("230 L", "MAIN FRAME", "L SECTION"),
+            (226, 249): ("255 L", "MAIN FRAME", "L SECTION"),
+            (251, 275): ("280 L", "MAIN FRAME", "L SECTION"),
+            (276, 300): ("305 L", "MAIN FRAME", "L SECTION"),
+            (301, 325): ("180 L", "155 L", "L SECTION"),
+            (326, 350): ("180 L", "180 L", "L SECTION"),
+            (351, 375): ("205 L", "180 L", "L SECTION"),
+            (376, 400): ("205 L", "205 L", "L SECTION"),
+            (401, 425): ("230 L", "205 L", "L SECTION"),
+            (426, 450): ("230 L", "230 L", "L SECTION"),
+            (451, 475): ("255 L", "230 L", "L SECTION"),
+            (476, 500): ("255 L", "255 L", "L SECTION"),
+            (501, 525): ("280 L", "255 L", "L SECTION"),
+            (526, 550): ("280 L", "280 L", "L SECTION"),
+            (551, 575): ("305 L", "280 L", "L SECTION"),
+            (576, 600): ("305 L", "305 L", "L SECTION")
+        }
+
+        # L-section mappings for CH corner
+        ch_l_sections_corner = {
+            (51, 124): ("125L", "MAIN FRAME", "L SECTION"),
+            (126, 149): ("150L", "MAIN FRAME", "L SECTION"),
+            (151, 174): ("175L", "MAIN FRAME", "L SECTION"),
+            (176, 199): ("200L", "MAIN FRAME", "L SECTION"),
+            (201, 224): ("225L", "MAIN FRAME", "L SECTION"),
+            (226, 249): ("250L", "MAIN FRAME", "L SECTION"),
+            (251, 275): ("275L", "MAIN FRAME", "L SECTION"),
+            (276, 300): ("300L", "MAIN FRAME", "L SECTION"),
+            (301, 325): ("175L", "150L", "L SECTION"),
+            (326, 350): ("175L", "175L", "L SECTION"),
+            (351, 375): ("200L", "175L", "L SECTION"),
+            (376, 400): ("200L", "200L", "L SECTION"),
+            (401, 425): ("225L", "200L", "L SECTION"),
+            (426, 450): ("225L", "225L", "L SECTION"),
+            (451, 475): ("250L", "225L", "L SECTION"),
+            (476, 500): ("250L", "250L", "L SECTION"),
+            (501, 525): ("275L", "250L", "L SECTION"),
+            (526, 550): ("275L", "275L", "L SECTION"),
+            (551, 575): ("300L", "275L", "L SECTION"),
+            (576, 600): ("300L", "300L", "L SECTION")
+        }
+
+        # J section mappings
+        j_sections = {
+            (25, 50): ("J SEC", "-", "J SECTION"),
+            (51, 115): ("115 T", "-", "J SECTION"),
+            (116, 250): ("AL SHEET", "-", "J SECTION")
+        }
+
+        j_l_sections = {
+            (50, 125): ("130 L", "L SECTION"),
+            (126, 150): ("155 L", "L SECTION"),
+            (151, 175): ("180 L", "L SECTION"),
+            (176, 200): ("205 L", "L SECTION"),
+            (201, 225): ("230 L", "L SECTION"),
+            (226, 250): ("255 L", "L SECTION"),
+            (251, 275): ("280 L", "L SECTION"),
+            (276, 300): ("305 L", "L SECTION")
+        }
+
+        # T section mappings
+        t_sections = {
+            (230,): ("100 T", "-", "-", "T SECTION"),
+            (231, 360): ("115 T", "115 T", "-", "T SECTION"),
+            (380,): ("250 CH", "EC", "-", "T SECTION"),
+            (430,): ("300 CH", "EC", "-", "T SECTION"),
+            (361, 380): ("255 L", "MAIN FRAME", "EC", "T SECTION"),
+            (381, 405): ("280 L", "MAIN FRAME", "EC", "T SECTION"),
+            (406, 430): ("305 L", "MAIN FRAME", "EC", "T SECTION"),
+            (431, 455): ("180 L", "155 L", "EC", "T SECTION"),
+            (456, 480): ("180 L", "180 L", "EC", "T SECTION")
+        }
+
+        # Misc section mappings
+        misc_sections = {
+            (100, "EB"): ("EB MB 100", "-", "SOLDIER WT LIP"),
+            (150, "EB"): ("EB MB 150", "-", "SOLDIER WT LIP"),
+            (100, "MB"): ("EB MB 100", "-", "SOLDIER WT LIP"),
+            (150, "MB"): ("EB MB 150", "-", "SOLDIER WT LIP"),
+            (100, "DP"): ("DP 100", "-", "SOLDIER W/O LIP"),
+            (150, "DP"): ("DP 150", "-", "SOLDIER W/O LIP"),
+            (130,): ("EXTERNAL CORNER", "-", "EXTERNAL CORNER"),
+            (50, "RK"): ("RK-50", "-", "RK")
         }
 
         raw_materials = []
+        degree_cutting = getattr(self, 'degree_cutting', False)  # Assume a boolean field
 
-        # Determine RM group
-        if b in ch_straight:
-            section_map = l_sections_straight
-        elif b in ch_corner:
-            section_map = l_sections_corner
-        else:
-            frappe.throw(f"Invalid FG Type: {b}")
+        # CH Section Logic
+        if fg_code in ch_straight or fg_code in ch_corner:
+            is_corner = fg_code in ch_corner
+            section_map = ch_l_sections_corner if is_corner else ch_l_sections_straight
+            cut_dim1, cut_dim2 = str(l1), str(l2) if l2 else "-"
+            if is_corner:
+                if fg_code in ["BCE", "KCE"]:
+                    cut_dim1, cut_dim2 = f"{l1+65}", f"{l2+65}"
+                else:
+                    cut_dim1, cut_dim2 = str(l1), str(l2) if l2 else "-"
+            if a < 300 and a % 25 == 0 and a in ch_sections:
+                rm_code = ch_sections[a]
+                cut_dim = f"{cut_dim1},{cut_dim2}" if is_corner else cut_dim1
+                raw_materials.append({"code": rm_code, "dimension": cut_dim, "remark": "CHANNEL SECTION", "quantity": 1})
+                frappe.log_error(message=f"CH {'Corner' if is_corner else 'Straight'}: A={a} is multiple of 25, using RM1={rm_code}, Cut={cut_dim}", title="CH Section Logic")
+            else:
+                for (min_a, max_a), (rm1, rm2, remark) in section_map.items():
+                    if min_a <= a <= max_a:
+                        cut_dim = f"{cut_dim1},{cut_dim2}" if is_corner else cut_dim1
+                        if a >= 301:
+                            raw_materials.append({"code": rm1, "dimension": cut_dim, "remark": remark, "quantity": 1})
+                            raw_materials.append({"code": rm2, "dimension": cut_dim, "remark": remark, "quantity": 1})
+                            frappe.log_error(message=f"CH {'Corner' if is_corner else 'Straight'}: A={a} in range {min_a}-{max_a}, using RM1={rm1}, RM2={rm2}, Cut={cut_dim}, QTY=2", title="CH Section Logic")
+                        else:
+                            raw_materials.append({"code": rm1, "dimension": cut_dim, "remark": remark, "quantity": 1})
+                            if rm2 != "MAIN FRAME":
+                                raw_materials.append({"code": rm2, "dimension": cut_dim, "remark": remark, "quantity": 1})
+                            else:
+                                raw_materials.append({"code": "MAIN FRAME", "dimension": cut_dim, "remark": remark, "quantity": 1})
+                            frappe.log_error(message=f"CH {'Corner' if is_corner else 'Straight'}: A={a} in range {min_a}-{max_a}, using RM1={rm1}, RM2={rm2}, Cut={cut_dim}", title="CH Section Logic")
+                        break
+            # Child parts
+            if fg_code != "PLB":
+                side_rail_qty = 1 if degree_cutting and fg_code in ["WR", "WRB"] else 2
+                raw_materials.append({"code": "SIDE RAIL", "dimension": f"{a-16}", "remark": f"FOR {fg_code}", "quantity": side_rail_qty})
+            if fg_code == "K" and l1 >= 1800:
+                raw_materials.append({"code": "STIFF PLATE", "dimension": f"{a-16}X61X4", "remark": "FOR K IF LENGTH 1800MM+ AND CORNER MADE WITH L SEC", "quantity": 4})
+            if fg_code in cp_like_types:
+                pipe_qty = {"CP": 1, "CPP": 2, "CPPP": 3, "PH": 1}.get(fg_code, 1)
+                raw_materials.append({"code": "ROUND PIPE", "dimension": "146", "remark": "FOR CP, CPP, CPPP, PH", "quantity": pipe_qty})
+                raw_materials.append({"code": "SQUARE PIPE", "dimension": "80", "remark": "FOR CP, CPP, CPPP, PH", "quantity": pipe_qty})
+            if fg_code in ["WR", "WRB"] and not degree_cutting:
+                raw_materials.append({"code": "RK-50", "dimension": f"{a}", "remark": "FOR WR, WRB", "quantity": 1})
+            if fg_code in wall_types:
+                u_stiff_qty = 8 if fg_code in ["W", "WR", "WRB", "WS", "WX", "WXS"] else 3
+                raw_materials.append({"code": "U STIFF", "dimension": f"{a-16}", "remark": f"FOR {fg_code}", "quantity": u_stiff_qty})
+                if fg_code in ["W", "WR", "WRB", "WS", "WX", "WXS"]:
+                    raw_materials.append({"code": "H STIFF", "dimension": f"{a-16}", "remark": f"FOR {fg_code}", "quantity": 2})
+            if fg_code in ["D", "SB", "PC", "B"]:
+                raw_materials.append({"code": "I STIFF", "dimension": f"{a-16}", "remark": f"FOR {fg_code}", "quantity": 4 if fg_code in ["D", "SB"] else 5})
+            if fg_code in ["BC", "BCE", "KC", "KCE"] and a < 301:
+                raw_materials.append({"code": "STIFF PLATE", "dimension": f"{a-16}X61X4", "remark": f"FOR {fg_code}", "quantity": 2})
 
-        # Determine Channel or L-section
-        if a < 300 and a in ch_sections and a % 25 == 0:
-            raw_materials.append({"code": ch_sections[a], "dimension": "-", "remark": "CHANNEL SECTION"})
-        else:
-            for (min_a, max_a), (rm1, rm2) in section_map.items():
+        # IC Section Logic
+        elif fg_code in ic_straight or fg_code in ic_corner:
+            is_corner = fg_code in ic_corner
+            key = (a, b, fg_code) if fg_code in ["SL", "CC"] else (a, b)
+            cut_dim1, cut_dim2 = str(l1), str(l2) if l2 else "-"
+            if fg_code in ["IC", "ICB"]:
+                cut_dim1 = f"{l1-4}"
+            elif fg_code in ["ICT", "ICX"]:
+                cut_dim1 = f"{l1-8}"
+            elif fg_code == "SCE":
+                cut_dim1, cut_dim2 = f"{l1+b}", f"{l2+b}"
+            elif fg_code == "SCY":
+                cut_dim1, cut_dim2 = f"{l1}", f"{l2+96}"
+            elif fg_code == "SCZ":
+                cut_dim1, cut_dim2 = f"{l1-4}", f"{l2}"
+            elif fg_code == "LSCE":
+                cut_dim1, cut_dim2 = f"{l1+b}", f"{l2+b}"
+            if key in ic_sections:
+                rm1, rm2, remark = ic_sections[key]
+                cut_dim = f"{cut_dim1},{cut_dim2}" if is_corner else cut_dim1
+                raw_materials.append({"code": rm1, "dimension": cut_dim, "remark": remark, "quantity": 1})
+                frappe.log_error(message=f"IC {'Corner' if is_corner else 'Straight'}: Exact match A={a}, B={b}, FG={fg_code}, using RM1={rm1}, Cut={cut_dim}", title="IC Section Logic")
+                if rm2 != "-":
+                    raw_materials.append({"code": rm2, "dimension": cut_dim, "remark": remark, "quantity": 1})
+            else:
+                if a < 150 and a % 25 == 0:
+                    cut_dim = f"{cut_dim1},{cut_dim2}" if is_corner else cut_dim1
+                    raw_materials.append({"code": f"{a} IC", "dimension": cut_dim, "remark": "IC SECTION", "quantity": 1})
+                    frappe.log_error(message=f"IC {'Corner' if is_corner else 'Straight'}: A={a} < 150 and multiple of 25, using RM1={a} IC, Cut={cut_dim}", title="IC Section Logic")
+                else:
+                    for (min_val, max_val), (rm1, rm2, remark) in ic_l_sections.items():
+                        if min_val <= a <= max_val:
+                            cut_dim = f"{cut_dim1},{cut_dim2}" if is_corner else cut_dim1
+                            raw_materials.append({"code": rm1, "dimension": cut_dim, "remark": remark, "quantity": 2 if not is_corner else 1})
+                            frappe.log_error(message=f"IC {'Corner' if is_corner else 'Straight'}: A={a} in range {min_val}-{max_val}, using RM1={rm1}, Cut={cut_dim}, QTY={2 if not is_corner else 1}", title="IC Section Logic")
+                            if min_val <= b <= max_val and rm2 != rm1:
+                                cut_dim_b = f"{cut_dim1},{cut_dim2}" if is_corner else cut_dim1
+                                raw_materials.append({"code": rm2, "dimension": cut_dim_b, "remark": remark, "quantity": 2 if not is_corner else 1})
+                                frappe.log_error(message=f"IC {'Corner' if is_corner else 'Straight'}: B={b} in range {min_val}-{max_val}, using RM2={rm2}, Cut={cut_dim_b}", title="IC Section Logic")
+                            break
+            # Child parts
+            side_rail_qty = 1 if fg_code in ["SCY", "SCZ"] else 2
+            side_rail_dim = "A-15" if any(rm["code"].endswith("IC") or rm["code"].endswith("SL") for rm in raw_materials) else "A-12"
+            if fg_code not in ["IC", "ICB", "ICT", "ICX"]:
+                raw_materials.append({"code": "SIDE RAIL", "dimension": side_rail_dim.replace("A", str(a)), "remark": f"FOR {fg_code}", "quantity": side_rail_qty})
+            stiff_qty = 8 if fg_code in ["CC", "CCL", "CCR", "IC", "ICB", "LS", "LSL", "LSR", "LSW", "SL", "SLR"] else 5 if fg_code in ["ICT", "ICX"] else 4
+            stiff_dim = f"{a-15}X{b-15}X4" if any(rm["code"].endswith("IC") or rm["code"].endswith("SL") for rm in raw_materials) else f"{a-12}X{b-12}X4"
+            raw_materials.append({"code": "STIFF PLATE", "dimension": stiff_dim, "remark": f"FOR {fg_code}", "quantity": stiff_qty})
+            if fg_code in ["IC", "ICB"]:
+                raw_materials.append({"code": "OUTER CAP", "dimension": f"{a}X{b}X4", "remark": f"FOR {fg_code}", "quantity": 1})
+            elif fg_code in ["ICT", "ICX"]:
+                raw_materials.append({"code": "OUTER CAP", "dimension": f"{a}X{b}X4", "remark": f"FOR {fg_code}", "quantity": 2})
+            elif fg_code in ["SCY", "SCZ"]:
+                outer_cap_dim = f"{b/math.sin(math.radians(45))}X{a}X4"
+                raw_materials.append({"code": "OUTER CAP", "dimension": outer_cap_dim, "remark": f"FOR {fg_code} ATTACHED IN DEG CUT SIDE", "quantity": 1})
+
+        # J Section Logic
+        elif fg_code in j_straight or fg_code in j_corner:
+            is_corner = fg_code in j_corner
+            cut_dim1, cut_dim2 = str(l1), str(l2) if l2 else "-"
+            if fg_code in ["JLT", "JRT", "JLX", "JRX"]:
+                cut_dim1 = f"{l1-8}"
+            elif fg_code in ["JL", "JLB", "JLT", "JLX", "JR", "JRB", "JRT", "JRX"]:
+                cut_dim1 = f"{l1-4}"
+            for (min_a, max_a), (rm1, rm2, remark) in j_sections.items():
                 if min_a <= a <= max_a:
-                    raw_materials.append({"code": rm1, "dimension": "-", "remark": "L SECTION 1"})
-                    if rm2 != "MAIN FRAME":
-                        raw_materials.append({"code": rm2, "dimension": "-", "remark": "L SECTION 2"})
+                    cut_dim = f"{cut_dim1},{cut_dim2}" if is_corner else cut_dim1
+                    if rm1 == "AL SHEET" and not is_corner:
+                        cut_dim = f"{a+65}X{l1}X4"
+                    elif rm1 == "AL SHEET" and is_corner:
+                        cut_dim = f"{a+65}X{l1}X4,{a+65}X{l2}X4"
+                    raw_materials.append({"code": rm1, "dimension": cut_dim, "remark": remark, "quantity": 1})
+                    frappe.log_error(message=f"J {'Corner' if is_corner else 'Straight'}: A={a} in range {min_a}-{max_a}, using RM1={rm1}, Cut={cut_dim}", title="J Section Logic")
                     break
+            if a >= 51:  # RM2 for B
+                for (min_b, max_b), (rm2, remark) in j_l_sections.items():
+                    if min_b <= b <= max_b:
+                        cut_dim = f"{cut_dim1},{cut_dim2}" if is_corner else cut_dim1
+                        raw_materials.append({"code": rm2, "dimension": cut_dim, "remark": remark, "quantity": 1})
+                        frappe.log_error(message=f"J {'Corner' if is_corner else 'Straight'}: B={b} in range {min_b}-{max_b}, using RM2={rm2}, Cut={cut_dim}", title="J Section Logic")
+                        break
+            # Child parts
+            if fg_code in ["SX", "SXC", "SXCE"]:
+                side_rail_dim = f"{b-16}" if any(rm["code"] == "J SEC" for rm in raw_materials) else f"{b-12}"
+                stiff_qty = 5 if fg_code == "SX" else 2
+                raw_materials.append({"code": "SIDE RAIL", "dimension": side_rail_dim, "remark": f"FOR {fg_code}", "quantity": stiff_qty})
+                stiff_dim = f"{a-16}X{b-16}X4" if any(rm["code"] == "J SEC" for rm in raw_materials) else f"{a-12}X{b-12}X4"
+                raw_materials.append({"code": "STIFF PLATE", "dimension": stiff_dim, "remark": f"FOR {fg_code}", "quantity": stiff_qty})
+            if fg_code in ["JL", "JLB", "JLT", "JLX", "JR", "JRB", "JRT", "JRX"]:
+                outer_cap_qty = 2 if fg_code in ["JLT", "JRT", "JLX", "JRX"] else 1
+                stiff_qty = 2 if fg_code in ["JLT", "JRT", "JLX", "JRX"] else 6
+                stiff_dim = f"{a-16}X{b-16}X4" if any(rm["code"] == "J SEC" for rm in raw_materials) else f"{a-12}X{b-12}X4"
+                raw_materials.append({"code": "OUTER CAP", "dimension": f"{a}X{b}X4", "remark": f"FOR {fg_code}", "quantity": outer_cap_qty})
+                raw_materials.append({"code": "STIFF PLATE", "dimension": stiff_dim, "remark": f"FOR {fg_code}", "quantity": stiff_qty})
 
-        # Add child parts
-        if b != "PLB":
-            raw_materials.append({"code": "B SIDE RAIL", "dimension": "-16MM", "remark": "FOR ALL CH ITEMS EXCEPT PLB"})
-        
-        if b == "K" and l1 >= 1800:
-            raw_materials.append({"code": "STIFFNER PLATE", "dimension": "-16X61X4 MM", "remark": "FOR K IF LENGTH 1800MM+ AND CORNER MADE WITH L SEC"})
-        
-        if b in cp_like_types:
-            raw_materials.append({"code": "ROUND PIPE", "dimension": "146 MM", "remark": "FOR CP, CPP, CPPP, PH, BC, BCE"})
-            raw_materials.append({"code": "SQUARE PIPE", "dimension": "80 MM", "remark": "FOR CP, CPP, CPPP, PH, BC, BCE"})
-        
-        if b == "WR":
-            raw_materials.append({"code": "ROCKER", "dimension": "RK-50", "remark": "FOR WR"})
-        
-        if b in wall_types:
-            raw_materials.append({"code": "STIFFNER U", "dimension": "-16MM", "remark": "FOR WALL"})
-            raw_materials.append({"code": "STIFFNER H", "dimension": "-16MM", "remark": "FOR WALL"})
-        
-        if b in ["D", "SB", "PC", "B"]:
-            raw_materials.append({"code": "STIFFNER I", "dimension": "-16MM", "remark": "FOR D, SB, PC, B"})
+        # T Section Logic
+        elif fg_code in t_straight:
+            cut_dim = str(l1)
+            if fg_code in ["WRBSE", "WRSE"] and not degree_cutting:
+                cut_dim = f"{l1-50}"
+            for key, (rm1, rm2, rm3, remark) in t_sections.items():
+                if isinstance(key, tuple) and len(key) == 2:
+                    if key[0] <= a <= key[1]:
+                        raw_materials.append({"code": rm1, "dimension": cut_dim, "remark": remark, "quantity": 2 if rm1 == "115 T" else 1})
+                        frappe.log_error(message=f"T Straight: A={a} in range {key[0]}-{key[1]}, using RM1={rm1}, Cut={cut_dim}, QTY={2 if rm1 == '115 T' else 1}", title="T Section Logic")
+                        if rm2 != "-":
+                            raw_materials.append({"code": rm2, "dimension": cut_dim, "remark": remark, "quantity": 1})
+                        if rm3 != "-":
+                            raw_materials.append({"code": rm3, "dimension": cut_dim, "remark": remark, "quantity": 2 if rm3 == "EC" else 1})
+                        break
+                elif isinstance(key, tuple) and len(key) == 1:
+                    if a == key[0]:
+                        raw_materials.append({"code": rm1, "dimension": cut_dim, "remark": remark, "quantity": 1})
+                        frappe.log_error(message=f"T Straight: A={a} exact match, using RM1={rm1}, Cut={cut_dim}", title="T Section Logic")
+                        if rm2 != "-":
+                            raw_materials.append({"code": rm2, "dimension": cut_dim, "remark": remark, "quantity": 2 if rm2 == "EC" else 1})
+                        if rm3 != "-":
+                            raw_materials.append({"code": rm3, "dimension": cut_dim, "remark": remark, "quantity": 2 if rm3 == "EC" else 1})
+                        break
+            # Child parts
+            side_rail_qty = 1 if degree_cutting and fg_code in ["WRBSE", "WRSE"] else 2
+            side_rail_dim = f"{a-1}" if any(rm["code"].endswith("T") for rm in raw_materials) else f"{a-16}"
+            if fg_code in ["TSE", "WRBSE", "WRSE"]:
+                side_rail_dim = f"{a-146}" if any(rm["code"].endswith("T") or rm["code"].endswith("CH") for rm in raw_materials) else f"{a-146}"
+            raw_materials.append({"code": "SIDE RAIL", "dimension": side_rail_dim, "remark": f"FOR {fg_code}", "quantity": side_rail_qty})
+            if fg_code in ["WRBSE", "WRSE"] and not degree_cutting:
+                raw_materials.append({"code": "RK 50", "dimension": f"{a-130}", "remark": f"FOR {fg_code}", "quantity": 1})
+            if fg_code in ["TSE", "WRBSE", "WRSE", "WSE", "WXSE"]:
+                stiff_dim = side_rail_dim
+                raw_materials.append({"code": "U STIFFNER", "dimension": stiff_dim, "remark": f"FOR {fg_code}", "quantity": 5 if fg_code == "TSE" else 8})
+            if fg_code in ["WRBSE", "WRSE", "WSE", "WXSE"]:
+                raw_materials.append({"code": "H STIFFNER", "dimension": side_rail_dim, "remark": f"FOR {fg_code}", "quantity": 2})
+            if fg_code in ["PCE", "SBE"]:
+                raw_materials.append({"code": "I STIFFNER", "dimension": side_rail_dim, "remark": f"FOR {fg_code}", "quantity": 8})
 
-        # Log raw materials
-        frappe.log_error(message=f"Raw Materials: {raw_materials}", title="FG Raw Material Output")
+        # Misc Section Logic
+        elif fg_code in misc_straight:
+            key = (a, fg_code) if fg_code in ["EB", "MB", "DP", "RK"] else (a,)
+            cut_dim = f"{l1+100}" if fg_code == "MB" else str(l1)
+            if key in misc_sections:
+                rm1, rm2, remark = misc_sections[key]
+                raw_materials.append({"code": rm1, "dimension": cut_dim, "remark": remark, "quantity": 1})
+                frappe.log_error(message=f"Misc Straight: A={a}, FG={fg_code}, using RM1={rm1}, Cut={cut_dim}", title="Misc Section Logic")
+                if rm2 != "-":
+                    raw_materials.append({"code": rm2, "dimension": cut_dim, "remark": remark, "quantity": 1})
+            elif fg_code == "RK" and a != 50:
+                for (min_a, max_a), (rm1, rm2, remark) in ic_l_sections.items():
+                    if min_a <= a <= max_a:
+                        raw_materials.append({"code": rm1, "dimension": cut_dim, "remark": "L SECTION FOR RK ODD SIZE", "quantity": 1})
+                        frappe.log_error(message=f"Misc Straight: RK with A={a} not 50, using RM1={rm1}, Cut={cut_dim}", title="Misc Section Logic")
+                        break
+            # Child parts
+            if fg_code == "DP":
+                raw_materials.append({"code": "ROUND PIPE", "dimension": "196", "remark": f"FOR {fg_code}", "quantity": 1})
+                if a == 150:
+                    raw_materials.append({"code": "SQUARE PLATE", "dimension": "150X150X4", "remark": f"FOR {fg_code}", "quantity": 1})
+            if fg_code in ["EB", "MB"] and a == 150:
+                raw_materials.append({"code": "SUPPORT PIPE", "dimension": "105", "remark": f"FOR {fg_code}", "quantity": 1})
 
-        # Populate child table
-        for rm in raw_materials:
-            self.append("raw_materials", {
-                "raw_material_code": rm["code"],
-                "item_code": rm["code"],  # Links to Item master
-                "dimension": rm["dimension"],
-                "remark": rm["remark"],
-                "quantity": 1
-            })
+        else:
+            frappe.throw(f"Invalid FG Code: {fg_code}")
+
+        return raw_materials
 
 @frappe.whitelist()
-def create_bom_from_fg_selector(fg_selector_name):
-    fg_doc = frappe.get_doc("FG Raw Material Selector", fg_selector_name)
-    bom = frappe.new_doc("BOM")
-    bom.item = fg_doc.fg_code  # Assumes FG code is a valid Item
-    for rm in fg_doc.raw_materials:
-        bom.append("items", {
-            "item_code": rm.item_code,
-            "qty": rm.quantity
+def get_raw_materials(project_design_upload):
+    try:
+        # Create a new document instance
+        doc = frappe.get_doc({
+            "doctype": "FG Raw Material Selector",
+            "project_design_upload": project_design_upload
         })
-    bom.save()
-    return bom.name
+        doc.process_fg_codes()
+        return doc.raw_materials
+    except Exception as e:
+        frappe.log_error(message=f"Error in get_raw_materials: {str(e)}", title="FG Raw Material Error")
+        frappe.throw(f"Failed to fetch raw materials: {str(e)}")
+@frappe.whitelist()
+def create_bom_from_fg_selector(fg_selector_name, fg_code=None):
+    try:
+        fg_doc = frappe.get_doc("FG Raw Material Selector", fg_selector_name)
+        bom = frappe.new_doc("BOM")
+        # Use provided fg_code or fallback to the first FG code's component
+        bom.item = fg_code.split('|')[2] if fg_code else fg_doc.fg_code.split('|')[2]
+        for rm in fg_doc.raw_materials:
+            # Only include raw materials for the specified fg_code (if provided)
+            if fg_code and rm.fg_code != fg_code:
+                continue
+            bom.append("items", {
+                "item_code": rm.item_code,
+                "qty": rm.quantity,
+                "uom": rm.uom if rm.uom else "Nos"  # Default UOM if not set
+            })
+        bom.save()
+        return bom.name
+    except Exception as e:
+        frappe.log_error(message=f"Error creating BOM: {str(e)}", title="FG Raw Material Error")
+        frappe.throw(f"Failed to create BOM: {str(e)}")
+
+
+
+from frappe.utils import flt
+@frappe.whitelist()
+def get_stock_for_items(items):
+    import json
+    items = json.loads(items)
+
+    warehouses_to_check = ["Off-Cut - VD", "Raw Material - VD"]  # Use your full warehouse names
+
+    for item in items:
+        item_code = item.get("item_code")
+        uom = item.get("uom")
+        item["available_quantity"] = 0
+        item["warehouse"] = ""
+
+        for wh in warehouses_to_check:
+            qty = get_actual_qty(item_code, wh, uom)
+            if qty > 0:
+                item["available_quantity"] = qty
+                item["warehouse"] = wh
+                break  # found in this warehouse
+
+    return items
+
+
+def get_actual_qty(item_code, warehouse, uom):
+    bin = frappe.db.get_value("Bin", {"item_code": item_code, "warehouse": warehouse}, ["actual_qty"], as_dict=True)
+    if not bin:
+        return 0
+    stock_uom = frappe.db.get_value("Item", item_code, "stock_uom")
+    conversion_factor = 1
+    if stock_uom != uom:
+        from erpnext.stock.doctype.uom.uom import get_uom_conversion_factor
+        try:
+            conversion_factor = get_uom_conversion_factor(item_code, uom)
+        except:
+            conversion_factor = 0
+    return flt(bin.actual_qty) / flt(conversion_factor or 1)
