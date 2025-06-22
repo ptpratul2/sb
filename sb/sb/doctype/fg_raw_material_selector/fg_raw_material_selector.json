@@ -10,9 +10,10 @@
   "column_break_tlve",
   "project",
   "section_break_tadf",
-  "fg_code",
   "raw_materials",
-  "raw_materials_display"
+  "raw_materials_display",
+  "cut_logic_table_section",
+  "cut_logic_details"
  ],
  "fields": [
   {
@@ -32,15 +33,10 @@
    "fieldtype": "Section Break"
   },
   {
-   "fieldname": "fg_code",
-   "fieldtype": "Data",
-   "label": "FG Code"
-  },
-  {
    "fieldname": "project_design_upload",
-   "fieldtype": "Link",
+   "fieldtype": "Table MultiSelect",
    "label": "Project Design Upload",
-   "options": "Project Design Upload"
+   "options": "BOM Multiselect"
   },
   {
    "fieldname": "column_break_tlve",
@@ -50,12 +46,23 @@
    "fieldname": "raw_materials_display",
    "fieldtype": "HTML",
    "label": "Raw Materials Display"
+  },
+  {
+   "fieldname": "cut_logic_table_section",
+   "fieldtype": "Section Break",
+   "label": "Cut Logic Table"
+  },
+  {
+   "fieldname": "cut_logic_details",
+   "fieldtype": "Table",
+   "label": "Cut Logic Details",
+   "options": "Cut Logic Details"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-05-27 12:06:12.468068",
+ "modified": "2025-06-17 21:02:30.820585",
  "modified_by": "Administrator",
  "module": "Sb",
  "name": "FG Raw Material Selector",

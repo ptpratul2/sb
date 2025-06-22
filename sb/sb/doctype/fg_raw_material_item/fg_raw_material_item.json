@@ -11,13 +11,18 @@
   "item_code",
   "dimension",
   "remark",
+  "project",
+  "ipo_name",
   "column_break_wizp",
   "quantity",
   "uom",
   "available_from",
   "warehouse",
   "status",
-  "reserve_tag"
+  "reserve_tag",
+  "available_quantity",
+  "stock_entry",
+  "priority"
  ],
  "fields": [
   {
@@ -46,6 +51,17 @@
    "fieldname": "remark",
    "fieldtype": "Small Text",
    "label": "Remark"
+  },
+  {
+   "fieldname": "project",
+   "fieldtype": "Link",
+   "label": "Project",
+   "options": "Project"
+  },
+  {
+   "fieldname": "ipo_name",
+   "fieldtype": "Data",
+   "label": "IPO Name"
   },
   {
    "fieldname": "quantity",
@@ -84,13 +100,30 @@
    "fieldname": "reserve_tag",
    "fieldtype": "Check",
    "label": "Reserve Tag"
+  },
+  {
+   "fieldname": "available_quantity",
+   "fieldtype": "Float",
+   "label": "Available Quantity"
+  },
+  {
+   "fieldname": "stock_entry",
+   "fieldtype": "Link",
+   "label": "Stock Entry",
+   "options": "Stock Entry"
+  },
+  {
+   "fieldname": "priority",
+   "fieldtype": "Select",
+   "label": "Priority",
+   "options": "1\n2\n3\n4\n5\n6"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "istable": 1,
  "links": [],
- "modified": "2025-05-27 19:36:27.594437",
+ "modified": "2025-06-17 22:12:00.171152",
  "modified_by": "Administrator",
  "module": "Sb",
  "name": "FG Raw Material Item",
