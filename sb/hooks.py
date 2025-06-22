@@ -4,6 +4,8 @@ app_publisher = "ptpratul2@gmail.com"
 app_description = "App for Manufacturing Module"
 app_email = "ptpratul2@gmail.com"
 app_license = "mit"
+app_version = "1.0.0"
+
 
 # Apps
 # ------------------

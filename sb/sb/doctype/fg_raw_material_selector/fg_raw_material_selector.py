@@ -7,62 +7,94 @@ import json
 
 class FGRawMaterialSelector(Document):
     def validate(self):
-        if self.project_design_upload:
-            self.raw_materials = []  # Clear existing raw materials
-            self.process_fg_codes()
+        self.raw_materials = []  # Clear existing raw materials
+        self.process_fg_codes()
 
     def process_fg_codes(self):
         try:
-            # Fetch FG codes from the selected Project Design Upload's FG Components child table
-            project_design = frappe.get_doc("Project Design Upload", self.project_design_upload)
-            fg_codes = project_design.get("items", [])
-            
-            if not fg_codes:
-                frappe.msgprint(f"No FG Components found for Project Design Upload: {self.project_design_upload}")
-                frappe.log_error(message=f"No FG Components found for Project Design Upload: {self.project_design_upload}", title="FG Raw Material Error")
-                return
+            # Validate project_design_upload (Table MultiSelect)
+            if not self.project_design_upload or not isinstance(self.project_design_upload, list):
+                frappe.throw("No Project Design Uploads selected or invalid format.")
 
-            # Process each FG code
+            # Process each Project Design Upload
             output = []
-            for fg_component in fg_codes:
-                self.fg_code = fg_component.fg_code
-                component_quantity = fg_component.quantity or 1  # Default to 1 if quantity is not set
-                component_uom = fg_component.uom  # Optional UOM from FG Components
-
-                if not self.fg_code:
-                    frappe.log_error(message=f"Empty FG Code in FG Component for Project Design Upload: {self.project_design_upload}", title="FG Raw Material Error")
+            for pdu_entry in self.project_design_upload:
+                pdu_name = pdu_entry.get("project_design_upload")
+                if not pdu_name or not isinstance(pdu_name, str):
+                    frappe.log_error(message=f"Invalid Project Design Upload name in BOM Multiselect: {pdu_name}", title="FG Raw Material Error")
                     continue
 
-                # Process the FG code and collect raw materials
+                # Fetch FG codes from the selected Project Design Upload's FG Components
                 try:
-                    raw_materials = self.process_single_fg_code()
-                except Exception as e:
-                    frappe.log_error(message=f"Error processing FG Code '{self.fg_code}': {str(e)}", title="FG Raw Material Error")
+                    project_design = frappe.get_doc("Project Design Upload", pdu_name)
+                except frappe.DoesNotExistError:
+                    frappe.log_error(message=f"Project Design Upload {pdu_name} not found", title="FG Raw Material Error")
                     continue
-                
-                # Format output for this FG code
-                rm_table = []
-                for rm in raw_materials:
-                    rm_quantity = rm["quantity"] * component_quantity  # Scale by FG component quantity
-                    rm_entry = {
-                        "fg_code": self.fg_code,  # Add FG code to raw material entry
-                        "raw_material_code": rm["code"],
-                        "item_code": rm["code"],
-                        "dimension": rm["dimension"],
-                        "remark": rm["remark"],
-                        "quantity": rm_quantity
-                    }
-                    if component_uom:
-                        rm_entry["uom"] = component_uom  # Set UOM if available
 
-                    rm_table.append(rm_entry)
-                    self.append("raw_materials", rm_entry)
+                # Get project from Project Design Upload
+                pdu_project = project_design.get("project")
+
+                fg_codes = project_design.get("items", [])
+                if not fg_codes:
+                    frappe.msgprint(f"No FG Components found for Project Design Upload: {pdu_name}")
+                    frappe.log_error(message=f"No FG Components found for Project Design Upload: {pdu_name}", title="FG Raw Material Error")
+                    continue
+
+                # Process each FG code
+                for fg_component in fg_codes:
+                    fg_code = fg_component.get("fg_code")
+                    component_quantity = fg_component.get("quantity", 1)  # Default to 1
+                    component_uom = fg_component.get("uom")  # Optional UOM
+                    ipo_name = fg_component.get("ipo_name")  # Get IPO Name from FG Components
+
+                    if not fg_code or not isinstance(fg_code, str):
+                        frappe.log_error(message=f"Invalid or empty FG Code in FG Component for Project Design Upload: {pdu_name}", title="FG Raw Material Error")
+                        continue
+
+                    # Process the FG code and collect raw materials
+                    try:
+                        raw_materials = self.process_single_fg_code(fg_code)
+                        if not isinstance(raw_materials, list):
+                            frappe.log_error(message=f"process_single_fg_code returned invalid data for FG Code '{fg_code}': {raw_materials}", title="FG Raw Material Error")
+                            continue
+                    except Exception as e:
+                        frappe.log_error(message=f"Error processing FG Code '{fg_code}' in PDU {pdu_name}: {str(e)}", title="FG Raw Material Error")
+                        continue
                 
-                # Add to output
-                output.append({
-                    "fg_code": self.fg_code,
-                    "raw_materials": rm_table
-                })
+                    # Format output for this FG code
+                    rm_table = []
+                    for rm in raw_materials:
+                        if not isinstance(rm, dict):
+                            frappe.log_error(message=f"Invalid raw material entry for FG Code '{fg_code}' in PDU {pdu_name}: {rm}", title="FG Raw Material Error")
+                            continue
+                        rm_quantity = rm.get("quantity", 1) * component_quantity
+                        rm_entry = {
+                            "fg_code": fg_code,
+                            "raw_material_code": rm.get("code"),
+                            "item_code": rm.get("code"),
+                            "dimension": rm.get("dimension"),
+                            "remark": rm.get("remark"),
+                            "quantity": rm_quantity,
+                            "project": pdu_project,  # Set project from PDU
+                            "ipo_name": ipo_name,  # Set IPO Name from FG Components
+                            "project_design_upload": pdu_name  # Track source PDU
+                        }
+                        if component_uom:
+                            rm_entry["uom"] = component_uom
+
+                        rm_table.append(rm_entry)
+                        try:
+                            self.append("raw_materials", rm_entry)
+                        except Exception as e:
+                            frappe.log_error(message=f"Error appending raw material for FG Code '{fg_code}' in PDU {pdu_name}: {str(e)}", title="FG Raw Material Error")
+                            continue
+                
+                    # Add to output
+                    output.append({
+                        "fg_code": fg_code,
+                        "project_design_upload": pdu_name,
+                        "raw_materials": rm_table
+                    })
 
             # Log the formatted output
             if output:
@@ -75,7 +107,7 @@ class FGRawMaterialSelector(Document):
             frappe.msgprint(f"Error processing FG codes: {str(e)}")
             frappe.log_error(message=f"Error in process_fg_codes: {str(e)}", title="FG Raw Material Error")
 
-    def process_single_fg_code(self):
+    def process_single_fg_code(self, fg_code):
         def safe_int(val, default=0):
             try:
                 return int(val)
@@ -84,22 +116,22 @@ class FGRawMaterialSelector(Document):
 
         try:
             # Log raw input
-            frappe.log_error(message=f"Raw FG Code: {self.fg_code}", title="FG Raw Material Input")
+            frappe.log_error(message=f"Raw FG Code: {fg_code}", title="FG Raw Material Input")
             
             # Handle mixed delimiters and parse FG code
-            parts = self.fg_code.split('|')
+            parts = fg_code.split('|')
             if len(parts) != 5:
-                frappe.throw(f"Invalid FG Code format. Expected 5 parts, got {len(parts)}: {self.fg_code}")
+                frappe.throw(f"Invalid FG Code format. Expected 5 parts, got {len(parts)}: {fg_code}")
 
             frappe.log_error(message=f"Server-Side Parts: {parts}", title="FG Raw Material Parts")
 
             a = safe_int(parts[0])
             b = safe_int(parts[1]) if parts[1] else 0
-            fg_code = parts[2]
+            fg_code_part = parts[2]
             l1 = safe_int(parts[3])
             l2 = safe_int(parts[4]) if parts[4] else 0
 
-            frappe.log_error(message=f"Parsed: A={a}, B={b}, FG_CODE={fg_code}, L1={l1}, L2={l2}", title="FG Raw Material Parsed")
+            frappe.log_error(message=f"Parsed: A={a}, B={b}, FG_CODE={fg_code_part}, L1={l1}, L2={l2}", title="FG Raw Material Parsed")
 
         except Exception as e:
             frappe.throw(f"Error parsing FG Code: {str(e)}")
@@ -170,26 +202,26 @@ class FGRawMaterialSelector(Document):
 
         # L-section mappings for CH corner
         ch_l_sections_corner = {
-            (51, 124): ("125L", "MAIN FRAME", "L SECTION"),
-            (126, 149): ("150L", "MAIN FRAME", "L SECTION"),
-            (151, 174): ("175L", "MAIN FRAME", "L SECTION"),
-            (176, 199): ("200L", "MAIN FRAME", "L SECTION"),
-            (201, 224): ("225L", "MAIN FRAME", "L SECTION"),
-            (226, 249): ("250L", "MAIN FRAME", "L SECTION"),
-            (251, 275): ("275L", "MAIN FRAME", "L SECTION"),
-            (276, 300): ("300L", "MAIN FRAME", "L SECTION"),
-            (301, 325): ("175L", "150L", "L SECTION"),
-            (326, 350): ("175L", "175L", "L SECTION"),
-            (351, 375): ("200L", "175L", "L SECTION"),
-            (376, 400): ("200L", "200L", "L SECTION"),
-            (401, 425): ("225L", "200L", "L SECTION"),
-            (426, 450): ("225L", "225L", "L SECTION"),
-            (451, 475): ("250L", "225L", "L SECTION"),
-            (476, 500): ("250L", "250L", "L SECTION"),
-            (501, 525): ("275L", "250L", "L SECTION"),
-            (526, 550): ("275L", "275L", "L SECTION"),
-            (551, 575): ("300L", "275L", "L SECTION"),
-            (576, 600): ("300L", "300L", "L SECTION")
+            (51, 124): ("125 L", "MAIN FRAME", "L SECTION"),
+            (126, 149): ("150 L", "MAIN FRAME", "L SECTION"),
+            (151, 174): ("175 L", "MAIN FRAME", "L SECTION"),
+            (176, 199): ("200 L", "MAIN FRAME", "L SECTION"),
+            (201, 224): ("225 L", "MAIN FRAME", "L SECTION"),
+            (226, 249): ("250 L", "MAIN FRAME", "L SECTION"),
+            (251, 275): ("275 L", "MAIN FRAME", "L SECTION"),
+            (276, 300): ("300 L", "MAIN FRAME", "L SECTION"),
+            (301, 325): ("175 L", "150 L", "L SECTION"),
+            (326, 350): ("175 L", "175 L", "L SECTION"),
+            (351, 375): ("200 L", "175 L", "L SECTION"),
+            (376, 400): ("200 L", "200 L", "L SECTION"),
+            (401, 425): ("225 L", "200 L", "L SECTION"),
+            (426, 450): ("225 L", "225 L", "L SECTION"),
+            (451, 475): ("250 L", "225 L", "L SECTION"),
+            (476, 500): ("250 L", "250 L", "L SECTION"),
+            (501, 525): ("275 L", "250 L", "L SECTION"),
+            (526, 550): ("275 L", "275 L", "L SECTION"),
+            (551, 575): ("300 L", "275 L", "L SECTION"),
+            (576, 600): ("300 L", "300 L", "L SECTION")
         }
 
         # J section mappings
@@ -240,12 +272,12 @@ class FGRawMaterialSelector(Document):
         degree_cutting = getattr(self, 'degree_cutting', False)  # Assume a boolean field
 
         # CH Section Logic
-        if fg_code in ch_straight or fg_code in ch_corner:
-            is_corner = fg_code in ch_corner
+        if fg_code_part in ch_straight or fg_code_part in ch_corner:
+            is_corner = fg_code_part in ch_corner
             section_map = ch_l_sections_corner if is_corner else ch_l_sections_straight
             cut_dim1, cut_dim2 = str(l1), str(l2) if l2 else "-"
             if is_corner:
-                if fg_code in ["BCE", "KCE"]:
+                if fg_code_part in ["BCE", "KCE"]:
                     cut_dim1, cut_dim2 = f"{l1+65}", f"{l2+65}"
                 else:
                     cut_dim1, cut_dim2 = str(l1), str(l2) if l2 else "-"
@@ -271,63 +303,62 @@ class FGRawMaterialSelector(Document):
                             frappe.log_error(message=f"CH {'Corner' if is_corner else 'Straight'}: A={a} in range {min_a}-{max_a}, using RM1={rm1}, RM2={rm2}, Cut={cut_dim}", title="CH Section Logic")
                         break
             # Child parts
-            if fg_code != "PLB":
-                side_rail_qty = 1 if degree_cutting and fg_code in ["WR", "WRB"] else 2
+            if fg_code_part != "PLB":
+                side_rail_qty = 1 if degree_cutting and fg_code_part in ["WR", "WRB"] else 2
                 child_parts.append({"code": "SIDE RAIL", "dimension": f"{a-16}", "remark": "CHILD PART", "quantity": side_rail_qty})
                 raw_materials.append({"code": "SIDE RAIL", "dimension": f"{a-16}", "remark": "CHILD PART", "quantity": side_rail_qty})
-            if fg_code == "K" and l1 >= 1800:
+            if fg_code_part == "K" and l1 >= 1800:
                 child_parts.append({"code": "STIFF PLATE", "dimension": f"{a-16}X61X4", "remark": "CHILD PART", "quantity": 4})
                 raw_materials.append({"code": "STIFF PLATE", "dimension": f"{a-16}X61X4", "remark": "CHILD PART", "quantity": 4})
-            if fg_code in cp_like_types:
-                pipe_qty = {"CP": 1, "CPP": 2, "CPPP": 3, "PH": 1}.get(fg_code, 1)
+            if fg_code_part in cp_like_types:
+                pipe_qty = {"CP": 1, "CPP": 2, "CPPP": 3, "PH": 1}.get(fg_code_part, 1)
                 child_parts.append({"code": "ROUND PIPE", "dimension": "146", "remark": "CHILD PART", "quantity": pipe_qty})
                 raw_materials.append({"code": "ROUND PIPE", "dimension": "146", "remark": "CHILD PART", "quantity": pipe_qty})
                 child_parts.append({"code": "SQUARE PIPE", "dimension": "80", "remark": "CHILD PART", "quantity": pipe_qty})
                 raw_materials.append({"code": "SQUARE PIPE", "dimension": "80", "remark": "CHILD PART", "quantity": pipe_qty})
-            if fg_code in ["WR", "WRB"] and not degree_cutting:
+            if fg_code_part in ["WR", "WRB"] and not degree_cutting:
                 child_parts.append({"code": "RK-50", "dimension": f"{a}", "remark": "CHILD PART", "quantity": 1})
                 raw_materials.append({"code": "RK-50", "dimension": f"{a}", "remark": "CHILD PART", "quantity": 1})
-            if fg_code in wall_types:
-                u_stiff_qty = 8 if fg_code in ["W", "WR", "WRB", "WS", "WX", "WXS"] else 3
+            if fg_code_part in wall_types:
+                u_stiff_qty = 8 if fg_code_part in ["W", "WR", "WRB", "WS", "WX", "WXS"] else 3
                 child_parts.append({"code": "U STIFF", "dimension": f"{a-16}", "remark": "CHILD PART", "quantity": u_stiff_qty})
                 raw_materials.append({"code": "U STIFF", "dimension": f"{a-16}", "remark": "CHILD PART", "quantity": u_stiff_qty})
-                if fg_code in ["W", "WR", "WRB", "WS", "WX", "WXS"]:
+                if fg_code_part in ["W", "WR", "WRB", "WS", "WX", "WXS"]:
                     child_parts.append({"code": "H STIFF", "dimension": f"{a-16}", "remark": "CHILD PART", "quantity": 2})
                     raw_materials.append({"code": "H STIFF", "dimension": f"{a-16}", "remark": "CHILD PART", "quantity": 2})
-            if fg_code in ["D", "SB", "PC", "B"]:
-                i_stiff_qty = 4 if fg_code in ["D", "SB"] else 5
+            if fg_code_part in ["D", "SB", "PC", "B"]:
+                i_stiff_qty = 4 if fg_code_part in ["D", "SB"] else 5
                 child_parts.append({"code": "I STIFF", "dimension": f"{a-16}", "remark": "CHILD PART", "quantity": i_stiff_qty})
                 raw_materials.append({"code": "I STIFF", "dimension": f"{a-16}", "remark": "CHILD PART", "quantity": i_stiff_qty})
-            if fg_code in ["BC", "BCE", "KC", "KCE"] and a < 301:
+            if fg_code_part in ["BC", "BCE", "KC", "KCE"] and a < 301:
                 child_parts.append({"code": "STIFF PLATE", "dimension": f"{a-16}X61X4", "remark": "CHILD PART", "quantity": 2})
                 raw_materials.append({"code": "STIFF PLATE", "dimension": f"{a-16}X61X4", "remark": "CHILD PART", "quantity": 2})
-            # Special case for B(L=2775) with PLATE(IN)
-            if fg_code == "B" and l1 == 2775:
-                child_parts.append({"code": "STIFF PLATE", "dimension": "61X109X4", "remark": "CHILD PART", "quantity": 3})
-                raw_materials.append({"code": "STIFF PLATE", "dimension": "61X109X4", "remark": "CHILD PART", "quantity": 3})
+            if fg_code_part == "B" and l1 == 2775:
+                child_parts.append({"code": "STIFF PLATE", "dimension": "61X109X4", "remark": "RAW", "quantity": 3})
+                raw_materials.append({"code": "STIFF raw_material", "dimension": "61X109X4", "raw_material": "RAW", "quantity": 3})
 
         # IC Section Logic
-        elif fg_code in ic_straight or fg_code in ic_corner:
-            is_corner = fg_code in ic_corner
-            key = (a, b, fg_code) if fg_code in ["SL", "CC"] else (a, b)
+        elif fg_code_part in ic_straight or fg_code_part in ic_corner:
+            is_corner = fg_code_part in ic_corner
+            key = (a, b, "") if fg_code_part in ["SL", "CC"] else (a, b)
             cut_dim1, cut_dim2 = str(l1), str(l2) if l2 else "-"
-            if fg_code in ["IC", "ICB"]:
+            if fg_code_part in ["IC", "ICB"]:
                 cut_dim1 = f"{l1-4}"
-            elif fg_code in ["ICT", "ICX"]:
+            elif fg_code_part in ["ICT", "ICX"]:
                 cut_dim1 = f"{l1-8}"
-            elif fg_code == "SCE":
+            elif fg_code_part == "SCE":
                 cut_dim1, cut_dim2 = f"{l1+b}", f"{l2+b}"
-            elif fg_code == "SCY":
+            elif fg_code_part == "SCY":
                 cut_dim1, cut_dim2 = f"{l1}", f"{l2+96}"
-            elif fg_code == "SCZ":
+            elif fg_code_part == "SCZ":
                 cut_dim1, cut_dim2 = f"{l1-4}", f"{l2}"
-            elif fg_code == "LSCE":
+            elif fg_code_part == "LSCE":
                 cut_dim1, cut_dim2 = f"{l1+b}", f"{l2+b}"
             if key in ic_sections:
                 rm1, rm2, remark = ic_sections[key]
                 cut_dim = f"{cut_dim1},{cut_dim2}" if is_corner else cut_dim1
                 raw_materials.append({"code": rm1, "dimension": cut_dim, "remark": remark, "quantity": 1})
-                frappe.log_error(message=f"IC {'Corner' if is_corner else 'Straight'}: Exact match A={a}, B={b}, FG={fg_code}, using RM1={rm1}, Cut={cut_dim}", title="IC Section Logic")
+                frappe.log_error(message=f"IC {'Corner' if is_corner else 'Straight'}: A={a}, B={b}, FG={fg_code_part}, using RM1={rm1}, Cut={cut_dim}", title="IC Section Logic")
                 if rm2 != "-":
                     raw_materials.append({"code": rm2, "dimension": cut_dim, "remark": remark, "quantity": 1})
             else:
@@ -347,33 +378,33 @@ class FGRawMaterialSelector(Document):
                                 frappe.log_error(message=f"IC {'Corner' if is_corner else 'Straight'}: B={b} in range {min_val}-{max_val}, using RM2={rm2}, Cut={cut_dim_b}", title="IC Section Logic")
                             break
             # Child parts
-            side_rail_qty = 1 if fg_code in ["SCY", "SCZ"] else 2
+            side_rail_qty = 1 if fg_code_part in ["SCY", "SCZ"] else 2
             side_rail_dim = f"{a-15}" if any(rm["code"].endswith("IC") or rm["code"].endswith("SL") for rm in raw_materials) else f"{a-12}"
-            if fg_code not in ["IC", "ICB", "ICT", "ICX"]:
+            if fg_code_part not in ["IC", "ICB", "ICT", "ICX"]:
                 child_parts.append({"code": "SIDE RAIL", "dimension": side_rail_dim, "remark": "CHILD PART", "quantity": side_rail_qty})
                 raw_materials.append({"code": "SIDE RAIL", "dimension": side_rail_dim, "remark": "CHILD PART", "quantity": side_rail_qty})
-            stiff_qty = 8 if fg_code in ["CC", "CCL", "CCR", "IC", "ICB", "LS", "LSL", "LSR", "LSW", "SL", "SLR"] else 5 if fg_code in ["ICT", "ICX"] else 4
+            stiff_qty = 8 if fg_code_part in ["CC", "CCL", "CCR", "IC", "ICB", "LS", "LSL", "LSR", "LSW", "SL", "SLR"] else 5 if fg_code_part in ["ICT", "ICX"] else 4
             stiff_dim = f"{a-15}X{b-15}X4" if any(rm["code"].endswith("IC") or rm["code"].endswith("SL") for rm in raw_materials) else f"{a-12}X{b-12}X4"
             child_parts.append({"code": "STIFF PLATE", "dimension": stiff_dim, "remark": "CHILD PART", "quantity": stiff_qty})
             raw_materials.append({"code": "STIFF PLATE", "dimension": stiff_dim, "remark": "CHILD PART", "quantity": stiff_qty})
-            if fg_code in ["IC", "ICB"]:
+            if fg_code_part in ["IC", "ICB"]:
                 child_parts.append({"code": "OUTER CAP", "dimension": f"{a}X{b}X4", "remark": "CHILD PART", "quantity": 1})
                 raw_materials.append({"code": "OUTER CAP", "dimension": f"{a}X{b}X4", "remark": "CHILD PART", "quantity": 1})
-            elif fg_code in ["ICT", "ICX"]:
+            elif fg_code_part in ["ICT", "ICX"]:
                 child_parts.append({"code": "OUTER CAP", "dimension": f"{a}X{b}X4", "remark": "CHILD PART", "quantity": 2})
                 raw_materials.append({"code": "OUTER CAP", "dimension": f"{a}X{b}X4", "remark": "CHILD PART", "quantity": 2})
-            elif fg_code in ["SCY", "SCZ"]:
+            elif fg_code_part in ["SCY", "SCZ"]:
                 outer_cap_dim = f"{b/math.sin(math.radians(45))}X{a}X4"
                 child_parts.append({"code": "OUTER CAP", "dimension": outer_cap_dim, "remark": "CHILD PART", "quantity": 1})
                 raw_materials.append({"code": "OUTER CAP", "dimension": outer_cap_dim, "remark": "CHILD PART", "quantity": 1})
 
         # J Section Logic
-        elif fg_code in j_straight or fg_code in j_corner:
-            is_corner = fg_code in j_corner
+        elif fg_code_part in j_straight or fg_code_part in j_corner:
+            is_corner = fg_code_part in j_corner
             cut_dim1, cut_dim2 = str(l1), str(l2) if l2 else "-"
-            if fg_code in ["JLT", "JRT", "JLX", "JRX"]:
+            if fg_code_part in ["JLT", "JRT", "JLX", "JRX"]:
                 cut_dim1 = f"{l1-8}"
-            elif fg_code in ["JL", "JLB", "JLT", "JLX", "JR", "JRB", "JRT", "JRX"]:
+            elif fg_code_part in ["JL", "JLB", "JLT", "JLX", "JR", "JRB", "JRT", "JRX"]:
                 cut_dim1 = f"{l1-4}"
             for (min_a, max_a), (rm1, rm2, remark) in j_sections.items():
                 if min_a <= a <= max_a:
@@ -393,17 +424,17 @@ class FGRawMaterialSelector(Document):
                         frappe.log_error(message=f"J {'Corner' if is_corner else 'Straight'}: B={b} in range {min_b}-{max_b}, using RM2={rm2}, Cut={cut_dim}", title="J Section Logic")
                         break
             # Child parts
-            if fg_code in ["SX", "SXC", "SXCE"]:
+            if fg_code_part in ["SX", "SXC", "SXCE"]:
                 side_rail_dim = f"{b-16}" if any(rm["code"] == "J SEC" for rm in raw_materials) else f"{b-12}"
-                stiff_qty = 5 if fg_code == "SX" else 2
+                stiff_qty = 5 if fg_code_part == "SX" else 2
                 child_parts.append({"code": "SIDE RAIL", "dimension": side_rail_dim, "remark": "CHILD PART", "quantity": 2})
                 raw_materials.append({"code": "SIDE RAIL", "dimension": side_rail_dim, "remark": "CHILD PART", "quantity": 2})
                 stiff_dim = f"{a-16}X{b-16}X4" if any(rm["code"] == "J SEC" for rm in raw_materials) else f"{a-12}X{b-12}X4"
                 child_parts.append({"code": "STIFF PLATE", "dimension": stiff_dim, "remark": "CHILD PART", "quantity": stiff_qty})
                 raw_materials.append({"code": "STIFF PLATE", "dimension": stiff_dim, "remark": "CHILD PART", "quantity": stiff_qty})
-            if fg_code in ["JL", "JLB", "JLT", "JLX", "JR", "JRB", "JRT", "JRX"]:
-                outer_cap_qty = 2 if fg_code in ["JLT", "JRT", "JLX", "JRX"] else 1
-                stiff_qty = 2 if fg_code in ["JLT", "JRT", "JLX", "JRX"] else 6
+            if fg_code_part in ["JL", "JLB", "JLT", "JLX", "JR", "JRB", "JRT", "JRX"]:
+                outer_cap_qty = 2 if fg_code_part in ["JLT", "JRT", "JLX", "JRX"] else 1
+                stiff_qty = 2 if fg_code_part in ["JLT", "JRT", "JLX", "JRX"] else 6
                 stiff_dim = f"{a-16}X{b-16}X4" if any(rm["code"] == "J SEC" for rm in raw_materials) else f"{a-12}X{b-12}X4"
                 child_parts.append({"code": "OUTER CAP", "dimension": f"{a}X{b}X4", "remark": "CHILD PART", "quantity": outer_cap_qty})
                 raw_materials.append({"code": "OUTER CAP", "dimension": f"{a}X{b}X4", "remark": "CHILD PART", "quantity": outer_cap_qty})
@@ -411,9 +442,9 @@ class FGRawMaterialSelector(Document):
                 raw_materials.append({"code": "STIFF PLATE", "dimension": stiff_dim, "remark": "CHILD PART", "quantity": stiff_qty})
 
         # T Section Logic
-        elif fg_code in t_straight:
+        elif fg_code_part in t_straight:
             cut_dim = str(l1)
-            if fg_code in ["WRBSE", "WRSE"] and not degree_cutting:
+            if fg_code_part in ["WRBSE", "WRSE"] and not degree_cutting:
                 cut_dim = f"{l1-50}"
             for key, (rm1, rm2, rm3, remark) in t_sections.items():
                 if isinstance(key, tuple) and len(key) == 2:
@@ -435,70 +466,97 @@ class FGRawMaterialSelector(Document):
                             raw_materials.append({"code": rm3, "dimension": cut_dim, "remark": remark, "quantity": 2 if rm3 == "EC" else 1})
                         break
             # Child parts
-            side_rail_qty = 1 if degree_cutting and fg_code in ["WRBSE", "WRSE"] else 2
+            side_rail_qty = 1 if degree_cutting and fg_code_part in ["WRBSE", "WRSE"] else 2
             side_rail_dim = f"{a-1}" if any(rm["code"].endswith("T") for rm in raw_materials) else f"{a-16}"
-            if fg_code in ["TSE", "WRBSE", "WRSE"]:
+            if fg_code_part in ["TSE", "WRBSE", "WRSE"]:
                 side_rail_dim = f"{a-146}" if any(rm["code"].endswith("T") or rm["code"].endswith("CH") for rm in raw_materials) else f"{a-146}"
             child_parts.append({"code": "SIDE RAIL", "dimension": side_rail_dim, "remark": "CHILD PART", "quantity": side_rail_qty})
             raw_materials.append({"code": "SIDE RAIL", "dimension": side_rail_dim, "remark": "CHILD PART", "quantity": side_rail_qty})
-            if fg_code in ["WRBSE", "WRSE"] and not degree_cutting:
+            if fg_code_part in ["WRBSE", "WRSE"] and not degree_cutting:
                 child_parts.append({"code": "RK-50", "dimension": f"{a-130}", "remark": "CHILD PART", "quantity": 1})
                 raw_materials.append({"code": "RK-50", "dimension": f"{a-130}", "remark": "CHILD PART", "quantity": 1})
-            if fg_code in ["TSE", "WRBSE", "WRSE", "WSE", "WXSE"]:
+            if fg_code_part in ["TSE", "WRBSE", "WRSE", "WSE", "WXSE"]:
                 stiff_dim = side_rail_dim
-                u_stiff_qty = 5 if fg_code == "TSE" else 8
+                u_stiff_qty = 5 if fg_code_part == "TSE" else 8
                 child_parts.append({"code": "U STIFFNER", "dimension": stiff_dim, "remark": "CHILD PART", "quantity": u_stiff_qty})
                 raw_materials.append({"code": "U STIFFNER", "dimension": stiff_dim, "remark": "CHILD PART", "quantity": u_stiff_qty})
-            if fg_code in ["WRBSE", "WRSE", "WSE", "WXSE"]:
+            if fg_code_part in ["WRBSE", "WRSE", "WSE", "WXSE"]:
                 child_parts.append({"code": "H STIFFNER", "dimension": side_rail_dim, "remark": "CHILD PART", "quantity": 2})
                 raw_materials.append({"code": "H STIFFNER", "dimension": side_rail_dim, "remark": "CHILD PART", "quantity": 2})
-            if fg_code in ["PCE", "SBE"]:
+            if fg_code_part in ["PCE", "SBE"]:
                 child_parts.append({"code": "I STIFFNER", "dimension": side_rail_dim, "remark": "CHILD PART", "quantity": 8})
                 raw_materials.append({"code": "I STIFFNER", "dimension": side_rail_dim, "remark": "CHILD PART", "quantity": 8})
 
         # Misc Section Logic
-        elif fg_code in misc_straight:
-            key = (a, fg_code) if fg_code in ["EB", "MB", "DP", "RK"] else (a,)
-            cut_dim = f"{l1+100}" if fg_code == "MB" else str(l1)
+        elif fg_code_part in misc_straight:
+            key = (a, fg_code_part) if fg_code_part in ["EB", "MB", "DP", "RK"] else (a,)
+            cut_dim = f"{l1+100}" if fg_code_part == "MB" else str(l1)
             if key in misc_sections:
                 rm1, rm2, remark = misc_sections[key]
                 raw_materials.append({"code": rm1, "dimension": cut_dim, "remark": remark, "quantity": 1})
-                frappe.log_error(message=f"Misc Straight: A={a}, FG={fg_code}, using RM1={rm1}, Cut={cut_dim}", title="Misc Section Logic")
+                frappe.log_error(message=f"Misc Straight: A={a}, FG={fg_code_part}, using RM1={rm1}, Cut={cut_dim}", title="Misc Section Logic")
                 if rm2 != "-":
                     raw_materials.append({"code": rm2, "dimension": cut_dim, "remark": remark, "quantity": 1})
-            elif fg_code == "RK" and a != 50:
+            elif fg_code_part == "RK" and a != 50:
                 for (min_a, max_a), (rm1, rm2, remark) in ic_l_sections.items():
                     if min_a <= a <= max_a:
                         raw_materials.append({"code": rm1, "dimension": cut_dim, "remark": "L SECTION FOR RK ODD SIZE", "quantity": 1})
                         frappe.log_error(message=f"Misc Straight: RK with A={a} not 50, using RM1={rm1}, Cut={cut_dim}", title="Misc Section Logic")
                         break
             # Child parts
-            if fg_code == "DP":
+            if fg_code_part == "DP":
                 child_parts.append({"code": "ROUND PIPE", "dimension": "196", "remark": "CHILD PART", "quantity": 1})
                 raw_materials.append({"code": "ROUND PIPE", "dimension": "196", "remark": "CHILD PART", "quantity": 1})
                 if a == 150:
                     child_parts.append({"code": "SQUARE PLATE", "dimension": "150X150X4", "remark": "CHILD PART", "quantity": 1})
                     raw_materials.append({"code": "SQUARE PLATE", "dimension": "150X150X4", "remark": "CHILD PART", "quantity": 1})
-            if fg_code in ["EB", "MB"] and a == 150:
+            if fg_code_part in ["EB", "MB"] and a == 150:
                 child_parts.append({"code": "SUPPORT PIPE", "dimension": "105", "remark": "CHILD PART", "quantity": 1})
                 raw_materials.append({"code": "SUPPORT PIPE", "dimension": "105", "remark": "CHILD PART", "quantity": 1})
 
         else:
-            frappe.throw(f"Invalid FG Code: {fg_code}")
+            frappe.throw(f"Invalid FG Code: {fg_code_part}")
 
         # Log child parts for debugging
-        frappe.log_error(message=f"Child Parts for FG Code {fg_code}: {json.dumps(child_parts, indent=2)}", title="Child Parts Debug")
+        frappe.log_error(message=f"Child Parts for FG Code {fg_code_part}: {json.dumps(child_parts, indent=2)}", title="Child Parts Debug")
 
         return raw_materials
 
 @frappe.whitelist()
-def get_raw_materials(project_design_upload):
+def get_raw_materials(project_design_upload=None):
     try:
+        # Validate input
+        if not project_design_upload:
+            frappe.throw("No Project Design Uploads provided.")
+
+        # Parse JSON string if provided
+        pdu_list = []
+        if isinstance(project_design_upload, str):
+            try:
+                pdu_data = json.loads(project_design_upload)
+                if isinstance(pdu_data, list):
+                    pdu_list = [entry.get("project_design_upload") for entry in pdu_data if isinstance(entry, dict) and entry.get("project_design_upload")]
+                elif isinstance(pdu_data, dict):
+                    pdu_list = [pdu_data.get("project_design_upload")] if pdu_data.get("project_design_upload") else []
+                else:
+                    frappe.throw(f"Invalid Project Design Upload format: {project_design_upload}")
+            except json.JSONDecodeError:
+                pdu_list = [project_design_upload]  # Treat as single document name
+        elif isinstance(project_design_upload, list):
+            pdu_list = [pdu for pdu in project_design_upload if isinstance(pdu, str)]
+        else:
+            frappe.throw(f"Invalid Project Design Upload format: {project_design_upload}")
+
+        # Filter out invalid entries
+        pdu_list = [pdu for pdu in pdu_list if pdu]
+        if not pdu_list:
+            frappe.throw("No valid Project Design Uploads provided.")
+
         # Create a new document instance
-        doc = frappe.get_doc({
-            "doctype": "FG Raw Material Selector",
-            "project_design_upload": project_design_upload
-        })
+        doc = frappe.new_doc("FG Raw Material Selector")
+        doc.project_design_upload = [
+            {"project_design_upload": pdu} for pdu in pdu_list
+        ]
         doc.process_fg_codes()
         return doc.raw_materials
     except Exception as e:
@@ -506,20 +564,22 @@ def get_raw_materials(project_design_upload):
         frappe.throw(f"Failed to fetch raw materials: {str(e)}")
 
 @frappe.whitelist()
-def create_bom_from_fg_selector(fg_selector_name, fg_code=None):
+def create_bom_from_fg_selector(fg_selector_name, fg_code=None, project_design_upload=None):
     try:
         fg_doc = frappe.get_doc("FG Raw Material Selector", fg_selector_name)
         bom = frappe.new_doc("BOM")
         # Use provided fg_code or fallback to the first FG code's component
-        bom.item = fg_code.split('|')[2] if fg_code else fg_doc.fg_code.split('|')[2]
+        bom.item = fg_code.split('|')[2] if fg_code else fg_doc.raw_materials[0].fg_code.split('|')[2] if fg_doc.raw_materials else ""
         for rm in fg_doc.raw_materials:
-            # Only include raw materials for the specified fg_code (if provided)
+            # Filter by fg_code and/or project_design_upload if provided
             if fg_code and rm.fg_code != fg_code:
+                continue
+            if project_design_upload and rm.project_design_upload != project_design_upload:
                 continue
             bom.append("items", {
                 "item_code": rm.item_code,
                 "qty": rm.quantity,
-                "uom": rm.uom if rm.uom else "Nos"  # Default UOM if not set
+                "uom": rm.uom if rm.uom else "Nos"  # Default UOM
             })
         bom.save()
         return bom.name
@@ -528,7 +588,6 @@ def create_bom_from_fg_selector(fg_selector_name, fg_code=None):
         frappe.throw(f"Failed to create BOM: {str(e)}")
 
 from frappe.utils import flt
-import frappe
 
 @frappe.whitelist()
 def reserve_stock(fg_selector_name):
@@ -603,7 +662,6 @@ def get_actual_qty(item_code, warehouse, uom):
     conversion_factor = 1
     if stock_uom != uom:
         from erpnext.stock.doctype.item.item import get_uom_conv_factor as get_uom_conversion_factor
-        
         try:
             conversion_factor = get_uom_conversion_factor(item_code, uom)
         except:
@@ -631,11 +689,18 @@ def get_fg_components_for_merge(project_design_upload):
     if not project_design_upload:
         return []
 
+    # Ensure project_design_upload is a list
+    pdu_list = [project_design_upload] if isinstance(project_design_upload, str) else project_design_upload
+    if not pdu_list or not all(isinstance(pdu, str) for pdu in pdu_list):
+        frappe.log_error(message=f"Invalid project_design_upload format: {project_design_upload}", title="FG Components Error")
+        return []
+
     return frappe.get_all(
         "FG Components",
-        filters={"parent": project_design_upload, "parenttype": "Project Design Upload"},
+        filters={"parent": ["in", pdu_list], "parenttype": "Project Design Upload"},
         fields=[
             "fg_code", "a", "client_area", "room_no", "flat_no", "b", "code",
-            "l1", "l2", "u_area", "sb_area", "dwg_no", "quantity"
-        ]
+            "l1", "l2", "u_area", "sb_area", "dwg_no", "quantity", "ipo_name"
+        ],
+        ignore_permissions=True
     )
