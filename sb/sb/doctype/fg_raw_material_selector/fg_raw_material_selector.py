@@ -25,14 +25,14 @@ class FGRawMaterialSelector(Document):
 
             output = []
             valid_fg_codes = (
-                ["B", "CP", "CPP", "CPPP", "D", "K", "PC", "PH", "PLB", "SB", "T", "TS", "W", "WR", "WRB", "WS", "WX", "WXS"] +  # ch_straight
+                ["B", "CP", "CPP", "CPPP", "D", "K", "PC", "PH", "PLB", "SB", "T", "TS", "W", "WR", "WRB","WRS", "WS", "WX", "WXS"] +  # ch_straight
                 ["BC", "BCE", "KC", "KCE"] +  # ch_corner
-                ["CC", "CCL", "CCR", "IC", "ICB", "ICT", "ICX", "LS", "LSL", "LSR", "LSW", "SL", "SLR"] +  # ic_straight
+                ["CC", "CCL", "CCR", "IC", "ICB", "ICXB", "ICT", "ICX", "LS", "LSK", "LSL", "LSR", "LSW", "SL", "SLR"] +  # ic_straight
                 ["SC", "SCE", "SCY", "SCZ", "LSC", "LSCE"] +  # ic_corner
                 ["JL", "JLB", "JLT", "JLX", "JR", "JRB", "JRT", "JRX", "SX"] +  # j_straight
                 ["SXC", "SXCE"] +  # j_corner
                 ["PCE", "SBE", "TSE", "WRBSE", "WRSE", "WSE", "WXSE"] +  # t_straight
-                ["DP", "EB", "MB", "EC", "ECH", "ECT", "ECX", "ECB", "RK"]  # misc_straight
+                ["DP", "EB", "MB", "EC", "ECH", "ECT", "ECX", "ECB","ECK", "RK"]  # misc_straight
             )
 
             # Batch processing setup
@@ -84,6 +84,8 @@ class FGRawMaterialSelector(Document):
                     component_quantity = fg_component.get("quantity", 1)
                     component_uom = fg_component.get("uom")
                     ipo_name = fg_component.get("ipo_name")
+                    project_design_item_reference = fg_component.get("name")
+
 
                     if not fg_code or not isinstance(fg_code, str):
                         frappe.log_error(message=f"Invalid FG Code in PDU: {pdu_name}, FG Code: {fg_code}", title="FG Raw Material Error")
@@ -121,12 +123,14 @@ class FGRawMaterialSelector(Document):
                             "ipo_name": ipo_name,
                             "project_design_upload": pdu_name,
                             "status": rm.get("status"),
-                            "warehouse": rm.get("warehouse")
+                            "warehouse": rm.get("warehouse"),
+                            "project_design_item_reference": project_design_item_reference
                         }
                         if component_uom:
                             rm_entry["uom"] = component_uom
 
                         rm_table.append(rm_entry)
+                        
                         try:
                             self.append("raw_materials", rm_entry)
                             frappe.log_error(message=f"Appended raw material for FG Code '{fg_code}': {json.dumps(rm_entry, indent=2)}", title="FG Process Debug")
@@ -196,14 +200,14 @@ class FGRawMaterialSelector(Document):
             return []
 
         # Define FG groups
-        ch_straight = ["B", "CP", "CPP", "CPPP", "D", "K", "PC", "PH", "PLB", "SB", "T", "TS", "W", "WR", "WRB", "WS", "WX", "WXS"]
+        ch_straight = ["B", "CP", "CPP", "CPPP", "D", "K", "PC", "PH", "PLB", "SB", "T", "TS", "W", "WR", "WRS", "WRB", "WS", "WX", "WXS"]
         ch_corner = ["BC", "BCE", "KC", "KCE"]
-        ic_straight = ["CC", "CCL", "CCR", "IC", "ICB", "ICT", "ICX", "LS", "LSL", "LSR", "LSW", "SL", "SLR"]
+        ic_straight = ["CC", "CCL", "CCR", "IC", "ICB", "ICT", "ICX","ICXB","LSK", "LS", "LSL", "LSR", "LSW", "SL", "SLR"]
         ic_corner = ["SC", "SCE", "SCY", "SCZ", "LSC", "LSCE"]
         j_straight = ["JL", "JLB", "JLT", "JLX", "JR", "JRB", "JRT", "JRX", "SX"]
         j_corner = ["SXC", "SXCE"]
         t_straight = ["PCE", "SBE", "TSE", "WRBSE", "WRSE", "WSE", "WXSE"]
-        misc_straight = ["DP", "EB", "MB", "EC", "ECH", "ECT", "ECX", "ECB", "RK"]
+        misc_straight = ["DP", "EB", "MB", "EC", "ECH", "ECT", "ECX", "ECK", "ECB", "RK"]
         wall_types = ["T", "TS", "W", "WR", "WRB", "WS", "WX", "WXS"]
         cp_like_types = ["CP", "CPP", "CPPP", "PH"]
 
@@ -340,11 +344,13 @@ class FGRawMaterialSelector(Document):
             section_map = ch_l_sections_corner if is_corner else ch_l_sections_straight
             cut_dim1, cut_dim2 = str(l1), str(l2) if l2 else "-"
             if ch_straight:
-                if fg_code_part in ["WR"]:
+                if fg_code_part in ["WR","WRS"]:
                     cut_dim1, cut_dim2 = f"{l1-50}", f"{l2-50}"
             if is_corner:
                 if fg_code_part in ["BCE", "KCE"]:
-                    cut_dim1, cut_dim2 = f"{l1+65}", f"{l2+65}"
+                    cut_dim1, cut_dim2 = f"{l1+65+10}", f"{l2+65+10}"
+                elif fg_code_part in ["BC", "KC"]:
+                    cut_dim1, cut_dim2 = f"{l1+10}", f"{l2+10}"
                 else:
                     cut_dim1, cut_dim2 = str(l1), str(l2) if l2 else "-"
             if a <= 300 and a % 25 == 0 and a in ch_sections:
@@ -370,7 +376,7 @@ class FGRawMaterialSelector(Document):
                         break
 
             if fg_code_part != "PLB":
-                side_rail_qty = 1 if degree_cutting and fg_code_part in ["WR", "WRB"] else 2
+                side_rail_qty = 1 if degree_cutting and fg_code_part in ["WR", "WRB", "WRS"] else 2
                 child_parts.append({"code": "SIDE RAIL", "dimension": f"{a-16}", "remark": "CHILD PART", "quantity": side_rail_qty})
                 raw_materials.append({"code": "SIDE RAIL", "dimension": f"{a-16}", "remark": "CHILD PART", "quantity": side_rail_qty})
             if fg_code_part == "K" and l1 >= 1800:
@@ -382,14 +388,14 @@ class FGRawMaterialSelector(Document):
                 raw_materials.append({"code": "ROUND PIPE", "dimension": "146", "remark": "CHILD PART", "quantity": pipe_qty})
                 child_parts.append({"code": "SQUARE PIPE", "dimension": "80", "remark": "CHILD PART", "quantity": pipe_qty})
                 raw_materials.append({"code": "SQUARE PIPE", "dimension": "80", "remark": "CHILD PART", "quantity": pipe_qty})
-            if fg_code_part in ["WR", "WRB"] and not degree_cutting:
+            if fg_code_part in ["WR", "WRB", "WRS"] and not degree_cutting:
                 child_parts.append({"code": "RK-50", "dimension": f"{a}", "remark": "CHILD PART", "quantity": 1})
                 raw_materials.append({"code": "RK-50", "dimension": f"{a}", "remark": "CHILD PART", "quantity": 1})
             if fg_code_part in wall_types:
-                u_stiff_qty = 8 if fg_code_part in ["W", "WR", "WRB", "WS", "WX", "WXS"] else 3
+                u_stiff_qty = 8 if fg_code_part in ["W", "WR", "WRB", "WRS", "WS", "WX", "WXS"] else 3
                 child_parts.append({"code": "U STIFFNER", "dimension": f"{a-16}", "remark": "CHILD PART", "quantity": u_stiff_qty})
                 raw_materials.append({"code": "U STIFFNER", "dimension": f"{a-16}", "remark": "CHILD PART", "quantity": u_stiff_qty})
-                if fg_code_part in ["W", "WR", "WRB", "WS", "WX", "WXS"]:
+                if fg_code_part in ["W", "WR", "WRB", "WS", "WRS", "WX", "WXS"]:
                     child_parts.append({"code": "H STIFFNER", "dimension": f"{a-16}", "remark": "CHILD PART", "quantity": 2})
                     raw_materials.append({"code": "H STIFFNER", "dimension": f"{a-16}", "remark": "CHILD PART", "quantity": 2})
             if fg_code_part in ["D", "SB", "PC", "B"]:
@@ -407,18 +413,20 @@ class FGRawMaterialSelector(Document):
             is_corner = fg_code_part in ic_corner
             key = (a, b, "") if fg_code_part in ["SL", "CC","CCL","CCR"] else (a, b)
             cut_dim1, cut_dim2 = str(l1), str(l2) if l2 else "-"
-            if fg_code_part in ["IC", "ICB"]:
+            if fg_code_part in ["IC", "ICB", "ICXB"]:
                 cut_dim1 = f"{l1-4}"
             elif fg_code_part in ["ICT", "ICX"]:
                 cut_dim1 = f"{l1-8}"
+            if fg_code_part in ["SC", "LSC"]:
+                cut_dim1, cut_dim2 = f"{l1+10}" if l1 else "-", f"{l2+10}" if l2 else "-"
             elif fg_code_part == "SCE":
-                cut_dim1, cut_dim2 = f"{l1+b}", f"{l2+b}"
+                cut_dim1, cut_dim2 = f"{l1+b+10}", f"{l2+b+10}"
             elif fg_code_part == "SCY":
-                cut_dim1, cut_dim2 = f"{l1}", f"{l2+96}"
+                cut_dim1, cut_dim2 = f"{l1+10}", f"{l2+96+10}"
             elif fg_code_part == "SCZ":
-                cut_dim1, cut_dim2 = f"{l1-4}", f"{l2}"
+                cut_dim1, cut_dim2 = f"{(l1-4)+10}", f"{l2+10}"
             elif fg_code_part == "LSCE":
-                cut_dim1, cut_dim2 = f"{l1+b}", f"{l2+b}"
+                cut_dim1, cut_dim2 = f"{l1+b+10}", f"{l2+b+10}"
             cut_dim = f"{cut_dim1},{cut_dim2}" if is_corner else cut_dim1
 
             # Check for exact IC section matches
@@ -461,11 +469,11 @@ class FGRawMaterialSelector(Document):
             if fg_code_part not in ["IC", "ICB", "ICT", "ICX"]:
                 child_parts.append({"code": "SIDE RAIL", "dimension": side_rail_dim, "remark": "CHILD PART", "quantity": side_rail_qty})
                 raw_materials.append({"code": "SIDE RAIL", "dimension": side_rail_dim, "remark": "CHILD PART", "quantity": side_rail_qty})
-            stiff_qty = 8 if fg_code_part in ["CC", "CCL", "CCR", "IC", "ICB", "LS", "LSL", "LSR", "LSW", "SL", "SLR"] else 5 if fg_code_part in ["ICT", "ICX"] else 4
+            stiff_qty = 8 if fg_code_part in ["CC", "CCL", "CCR", "IC", "ICB","ICXB", "LS", "LSL","LSK", "LSR", "LSW", "SL", "SLR"] else 5 if fg_code_part in ["ICT", "ICX"] else 4
             stiff_dim = f"{a-15}X{b-15}X4" if any(rm["code"].endswith("IC") or rm["code"].endswith("SL") for rm in raw_materials) else f"{a-12}X{b-12}X4"
             child_parts.append({"code": "STIFF PLATE", "dimension": stiff_dim, "remark": "CHILD PART", "quantity": stiff_qty})
             raw_materials.append({"code": "STIFF PLATE", "dimension": stiff_dim, "remark": "CHILD PART", "quantity": stiff_qty})
-            if fg_code_part in ["IC", "ICB"]:
+            if fg_code_part in ["IC", "ICB", "ICXB"]:
                 child_parts.append({"code": "OUTER CAP", "dimension": f"{a}X{b}X4", "remark": "CHILD PART", "quantity": 1})
                 raw_materials.append({"code": "OUTER CAP", "dimension": f"{a}X{b}X4", "remark": "CHILD PART", "quantity": 1})
             elif fg_code_part in ["ICT", "ICX"]:
@@ -475,7 +483,7 @@ class FGRawMaterialSelector(Document):
                 outer_cap_dim = f"{b/math.sin(math.radians(45))}X{a}X4"
                 child_parts.append({"code": "OUTER CAP", "dimension": outer_cap_dim, "remark": "CHILD PART", "quantity": 1})
                 raw_materials.append({"code": "OUTER CAP", "dimension": outer_cap_dim, "remark": "CHILD PART", "quantity": 1})
-
+        ## J Section Logic
         elif fg_code_part in j_straight or fg_code_part in j_corner:
             is_corner = fg_code_part in j_corner
             cut_dim1, cut_dim2 = str(l1), str(l2) if l2 else "-"
@@ -483,6 +491,9 @@ class FGRawMaterialSelector(Document):
                 cut_dim1 = f"{l1-8}"
             elif fg_code_part in ["JL", "JLB", "JLT", "JLX", "JR", "JRB", "JRT", "JRX"]:
                 cut_dim1 = f"{l1-4}"
+            elif fg_code_part in ["SXC", "SXCE"]:
+                cut_dim1 = f"{l1+10}" if fg_code_part == "SXC" else f"{l1+b+10}"
+                cut_dim2 = f"{l2+10}" if fg_code_part == "SXC" else f"{l2+b+10}"
             for (min_a, max_a), (rm1, rm2, remark) in j_sections.items():
                 if min_a <= a <= max_a:
                     cut_dim = f"{cut_dim1},{cut_dim2}" if is_corner else cut_dim1
@@ -492,31 +503,36 @@ class FGRawMaterialSelector(Document):
                         cut_dim = f"{a+65}X{l1}X4,{a+65}X{l2}X4"
                     raw_materials.append({"code": rm1, "dimension": cut_dim, "remark": remark, "quantity": 1})
                     frappe.log_error(message=f"J {'Corner' if is_corner else 'Straight'}: A={a} in range {min_a}-{max_a}, using RM1={rm1}, Cut={cut_dim}", title="J Section Logic")
+                    # Check for A in 25-50 and B = 100 to skip RM2
+                    if not (25 <= a <= 50 and b == 100):
+                        # Only add RM2 if A >= 51 or if A is outside 25-50
+                        for (min_b, max_b), (rm2, remark) in j_l_sections.items():
+                            if min_b <= b <= max_b:
+                                cut_dim = f"{cut_dim1},{cut_dim2}" if is_corner else cut_dim1
+                                raw_materials.append({"code": rm2, "dimension": cut_dim, "remark": remark, "quantity": 1})
+                                frappe.log_error(message=f"J {'Corner' if is_corner else 'Straight'}: B={b} in range {min_b}-{max_b}, using RM2={rm2}, Cut={cut_dim}", title="J Section Logic")
+                                break
+                    else:
+                        frappe.log_error(message=f"J {'Corner' if is_corner else 'Straight'}: A={a} in 25-50 and B={b} == 100, skipping RM2 as per logic", title="J Section Logic")
                     break
-            if a >= 51:
-                for (min_b, max_b), (rm2, remark) in j_l_sections.items():
-                    if min_b <= b <= max_b:
-                        cut_dim = f"{cut_dim1},{cut_dim2}" if is_corner else cut_dim1
-                        raw_materials.append({"code": rm2, "dimension": cut_dim, "remark": remark, "quantity": 1})
-                        frappe.log_error(message=f"J {'Corner' if is_corner else 'Straight'}: B={b} in range {min_b}-{max_b}, using RM2={rm2}, Cut={cut_dim}", title="J Section Logic")
-                        break
+            # Child parts logic
             if fg_code_part in ["SX", "SXC", "SXCE"]:
                 side_rail_dim = f"{b-16}" if any(rm["code"] == "J SEC" for rm in raw_materials) else f"{b-12}"
                 stiff_qty = 5 if fg_code_part == "SX" else 2
                 child_parts.append({"code": "SIDE RAIL", "dimension": side_rail_dim, "remark": "CHILD PART", "quantity": 2})
                 raw_materials.append({"code": "SIDE RAIL", "dimension": side_rail_dim, "remark": "CHILD PART", "quantity": 2})
-                stiff_dim = f"{a-16}X{b-16}X4" if any(rm["code"] == "J SEC" for rm in raw_materials) else f"{a-12}X{b-12}X4"
+                stiff_dim = f"{a-4}X{b-12}X4" if any(rm["code"] == "J SEC" for rm in raw_materials) else f"{a-4}X{b-12}X4"
                 child_parts.append({"code": "STIFF PLATE", "dimension": stiff_dim, "remark": "CHILD PART", "quantity": stiff_qty})
                 raw_materials.append({"code": "STIFF PLATE", "dimension": stiff_dim, "remark": "CHILD PART", "quantity": stiff_qty})
             if fg_code_part in ["JL", "JLB", "JLT", "JLX", "JR", "JRB", "JRT", "JRX"]:
                 outer_cap_qty = 2 if fg_code_part in ["JLT", "JRT", "JLX", "JRX"] else 1
                 stiff_qty = 2 if fg_code_part in ["JLT", "JRT", "JLX", "JRX"] else 6
-                stiff_dim = f"{a-16}X{b-16}X4" if any(rm["code"] == "J SEC" for rm in raw_materials) else f"{a-12}X{b-12}X4"
-                child_parts.append({"code": "OUTER CAP", "dimension": f"{a}X{b}X4", "remark": "CHILD PART", "quantity": outer_cap_qty})
-                raw_materials.append({"code": "OUTER CAP", "dimension": f"{a}X{b}X4", "remark": "CHILD PART", "quantity": outer_cap_qty})
+                stiff_dim = f"{a-4}X{b-16}X4" if any(rm["code"] == "J SEC" for rm in raw_materials) else f"{a-4}X{b-12}X4"
+                child_parts.append({"code": "OUTER CAP", "dimension": f"{a+65}X{b}X4", "remark": "CHILD PART", "quantity": outer_cap_qty})
+                raw_materials.append({"code": "OUTER CAP", "dimension": f"{a+65}X{b}X4", "remark": "CHILD PART", "quantity": outer_cap_qty})
                 child_parts.append({"code": "STIFF PLATE", "dimension": stiff_dim, "remark": "CHILD PART", "quantity": stiff_qty})
                 raw_materials.append({"code": "STIFF PLATE", "dimension": stiff_dim, "remark": "CHILD PART", "quantity": stiff_qty})
-
+        # T section logic
         elif fg_code_part in t_straight:
             cut_dim = str(l1)
             if fg_code_part in ["WRBSE", "WRSE"] and not degree_cutting:
@@ -524,8 +540,8 @@ class FGRawMaterialSelector(Document):
             for key, (rm1, rm2, rm3, remark) in t_sections.items():
                 if isinstance(key, tuple) and len(key) == 2:
                     if key[0] <= a <= key[1]:
-                        raw_materials.append({"code": rm1, "dimension": cut_dim, "remark": remark, "quantity": 2 if rm1 == "115 T" else 1})
-                        frappe.log_error(message=f"T Straight: A={a} in range {key[0]}-{key[1]}, using RM1={rm1}, Cut={cut_dim}, QTY={2 if rm1 == '115 T' else 1}", title="T Section Logic")
+                        raw_materials.append({"code": rm1, "dimension": cut_dim, "remark": remark, "quantity": 1 if rm1 == "115 T" else 1})
+                        frappe.log_error(message=f"T Straight: A={a} in range {key[0]}-{key[1]}, using RM1={rm1}, Cut={cut_dim}, QTY={1 if rm1 == '115 T' else 1}", title="T Section Logic")
                         if rm2 != "-":
                             raw_materials.append({"code": rm2, "dimension": cut_dim, "remark": remark, "quantity": 1})
                         if rm3 != "-":
@@ -541,7 +557,7 @@ class FGRawMaterialSelector(Document):
                             raw_materials.append({"code": rm3, "dimension": cut_dim, "remark": remark, "quantity": 2 if rm3 == "EC" else 1})
                         break
             side_rail_qty = 1 if degree_cutting and fg_code_part in ["WRBSE", "WRSE"] else 2
-            side_rail_dim = f"{a-131}" if any(rm["code"].endswith("T") for rm in raw_materials) else f"{a-16}"
+            side_rail_dim = f"{a-131}" if any(rm["code"].endswith("T") for rm in raw_materials) else f"{a-146}"
             if fg_code_part in ["TSE", "WRBSE", "WRSE"]:
                 side_rail_dim = f"{a-146}" if any(rm["code"].endswith("T") or rm["code"].endswith("CH") for rm in raw_materials) else f"{a-146}"
             child_parts.append({"code": "SIDE RAIL", "dimension": side_rail_dim, "remark": "CHILD PART", "quantity": side_rail_qty})

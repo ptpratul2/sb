@@ -8,6 +8,7 @@
  "field_order": [
   "fg_code",
   "raw_material_code",
+  "project_design_item_reference",
   "item_code",
   "dimension",
   "remark",
@@ -35,6 +36,11 @@
    "fieldname": "raw_material_code",
    "fieldtype": "Data",
    "label": "Raw Material Code"
+  },
+   {
+   "fieldname": "project_design_item_reference",
+   "fieldtype": "Data",
+   "label": "Project Design item Reference"
   },
   {
    "fieldname": "item_code",
