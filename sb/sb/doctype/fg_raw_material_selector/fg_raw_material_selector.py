@@ -84,6 +84,13 @@ class FGRawMaterialSelector(Document):
                     component_quantity = fg_component.get("quantity", 1)
                     component_uom = fg_component.get("uom")
                     ipo_name = fg_component.get("ipo_name")
+                    a= fg_component.get("a", 0)
+                    b= fg_component.get("b", 0)
+                    sec_code = fg_component.get("code","")
+                    l1 = fg_component.get("l1", 0)
+                    l2 = fg_component.get("l2", 0)
+                    bom_qty=fg_component.get("quantity", 0)
+                
                     project_design_item_reference = fg_component.get("name")
 
 
@@ -116,6 +123,12 @@ class FGRawMaterialSelector(Document):
                             "fg_code": fg_code,
                             "raw_material_code": rm.get("code"),
                             "item_code": rm.get("code"),
+                            "a": a,
+                            "b": b,
+                            "code": sec_code,
+                            "l1": l1,
+                            "l2": l2,
+                            "bom_qty": bom_qty,
                             "dimension": rm.get("dimension"),
                             "remark": rm.get("remark"),
                             "quantity": rm_quantity,
@@ -827,28 +840,3 @@ def clear_reservation(fg_selector_name):
         frappe.log_error(message=f"Error clearing reservation: {str(e)}", title="FG Raw Material Error")
         raise
 
-@frappe.whitelist()
-def get_fg_components_for_merge(project_design_upload):
-    try:
-        frappe.log_error(message=f"Fetching FG components for PDU: {project_design_upload}", title="FG Components Debug")
-        if not project_design_upload:
-            frappe.log_error(message="No project_design_upload provided.", title="FG Components Error")
-            return []
-        pdu_list = [project_design_upload] if isinstance(project_design_upload, str) else project_design_upload
-        if not pdu_list or not all(isinstance(pdu, str) for pdu in pdu_list):
-            frappe.log_error(message=f"Invalid project_design_upload format: {project_design_upload}", title="FG Components Error")
-            return []
-        components = frappe.get_all(
-            "FG Components",
-            filters={"parent": ["in", pdu_list], "parenttype": "Project Design Upload"},
-            fields=[
-                "fg_code", "a", "client_area", "room_no", "flat_no", "b", "code",
-                "l1", "l2", "u_area", "sb_area", "dwg_no", "quantity", "ipo_name"
-            ],
-            ignore_permissions=True
-        )
-        frappe.log_error(message=f"Fetched FG components: {json.dumps(components, indent=2)}", title="FG Components Debug")
-        return components
-    except Exception as e:
-        frappe.log_error(message=f"Error in get_fg_components_for_merge: {str(e)}", title="FG Components Error")
-        raise
