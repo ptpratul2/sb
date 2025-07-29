@@ -17,17 +17,21 @@ frappe.query_reports["Consolidated Raw Material Report"] = {
         {
             "fieldname": "ipo_name",
             "label": __("IPO Name"),
-            "fieldtype": "Data"
+            "fieldtype": "Data",
+            "reqd": 0
         },
         {
             "fieldname": "code",
             "label": __("FG Code"),
-            "fieldtype": "Data"
+            "fieldtype": "Data",
+            "reqd": 0
         },
         {
             "fieldname": "section",
             "label": __("Section"),
-            "fieldtype": "Data"
+            "fieldtype": "Select",
+            "options": "\nCHANNEL SECTION\nL SECTION\nIC SECTION\nJ SECTION\nT SECTION\nSOLDIER\nEXTERNAL CORNER\nRK",
+            "reqd": 0
         }
     ]
 }

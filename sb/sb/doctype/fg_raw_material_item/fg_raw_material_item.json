@@ -6,6 +6,14 @@
  "editable_grid": 1,
  "engine": "InnoDB",
  "field_order": [
+  "a",
+  "b",
+  "code",
+  "l1",
+  "l2",
+  "bom_qty",
+  "dwn_no",
+  "u_area",
   "fg_code",
   "raw_material_code",
   "project_design_item_reference",
@@ -37,10 +45,12 @@
    "fieldtype": "Data",
    "label": "Raw Material Code"
   },
-   {
+  {
    "fieldname": "project_design_item_reference",
-   "fieldtype": "Data",
-   "label": "Project Design item Reference"
+   "fieldtype": "Link",
+   "label": "Project Design item Reference",
+   "options": "FG Components",
+    "read_only": 1
   },
   {
    "fieldname": "item_code",
@@ -96,6 +106,34 @@
    "options": "Warehouse"
   },
   {
+   "fetch_from": "project_design_item_reference.a",
+   "fieldname": "a",
+   "fieldtype": "Data",
+   "label": "A",
+   "read_only": 1
+  },
+  {
+   "fetch_from": "project_design_item_reference.b",
+   "fieldname": "b",
+   "fieldtype": "Data",
+   "label": "B",
+   "read_only": 1
+  },
+  {
+   "fetch_from": "project_design_item_reference.l1",
+   "fieldname": "l1",
+   "fieldtype": "Data",
+   "label": "L1",
+   "read_only": 1
+  },
+  {
+   "fetch_from": "project_design_item_reference.l2",
+   "fieldname": "l2",
+   "fieldtype": "Data",
+   "label": "L2",
+   "read_only": 1
+  },
+  {
    "fieldname": "status",
    "fieldtype": "Select",
    "label": "Status",
@@ -123,13 +161,41 @@
    "fieldtype": "Select",
    "label": "Priority",
    "options": "1\n2\n3\n4\n5\n6"
+  },
+  {
+   "fetch_from": "project_design_item_reference.code",
+   "fieldname": "code",
+   "fieldtype": "Data",
+   "label": "Code",
+   "read_only": 1
+  },
+  {
+   "fetch_from": "project_design_item_reference.quantity",
+   "fieldname": "bom_qty",
+   "fieldtype": "Float",
+   "label": "BOM Qty",
+   "read_only": 1
+  },
+  {
+   "fetch_from": "project_design_item_reference.dwg_no",
+   "fieldname": "dwn_no",
+   "fieldtype": "Data",
+   "label": "DWN NO",
+    "read_only": 1
+  },
+  {
+   "fetch_from": "project_design_item_reference.u_area",
+   "fieldname": "u_area",
+   "fieldtype": "Float",
+   "label": "U Area",
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "istable": 1,
  "links": [],
- "modified": "2025-06-17 22:12:00.171152",
+ "modified": "2025-07-28 22:49:28.693531",
  "modified_by": "Administrator",
  "module": "Sb",
  "name": "FG Raw Material Item",
