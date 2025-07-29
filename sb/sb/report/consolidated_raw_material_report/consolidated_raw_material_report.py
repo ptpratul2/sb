@@ -67,8 +67,9 @@ def execute(filters=None):
             a = item.get("a", 0)
             b = item.get("b", 0)
             sec_code = item.get("code", "")
-            l1 = item.get("l1", 0)
-            l2 = item.get("l2", 0)
+            l1, l2 = parse_dimension(item.get("dimension"))
+            # l1 = item.get("l1", 0)
+            # l2 = item.get("l2", 0)
             bom_qty = item.get("bom_qty", 0)
             dwg_no = item.get("dwn_no", "")
             u_area = item.get("u_area", "")
@@ -120,11 +121,11 @@ def execute(filters=None):
                         consolidated[consolidation_key][f"{rm_slot}_code"] = item_code
                         consolidated[consolidation_key][f"{rm_slot}_l1"] = l1
                         consolidated[consolidation_key][f"{rm_slot}_l2"] = l2
-                        consolidated[consolidation_key][f"{rm_slot}_qty"] = 1
-                        quantity -= 1
+                        consolidated[consolidation_key][f"{rm_slot}_qty"] = quantity
                         rm_assigned = True
-                    if quantity == 0:
+                    if rm_assigned:
                         break
+
 
             part_fieldname = None
             if item_code in predefined_child_parts:
@@ -135,11 +136,12 @@ def execute(filters=None):
                         part_fieldname = field_name
                         break
 
-            if part_fieldname:
-                if not consolidated[consolidation_key][f"{part_fieldname}_l1"]:
+            if part_fieldname and f"{part_fieldname}_l1" in consolidated[consolidation_key]:
+                if not consolidated[consolidation_key].get(f"{part_fieldname}_l1"):
                     consolidated[consolidation_key][f"{part_fieldname}_l1"] = l1
                     consolidated[consolidation_key][f"{part_fieldname}_l2"] = l2
                 consolidated[consolidation_key][f"{part_fieldname}_qty"] += flt(item.get("quantity", 0))
+
 
         # Return as data table
         data = []
