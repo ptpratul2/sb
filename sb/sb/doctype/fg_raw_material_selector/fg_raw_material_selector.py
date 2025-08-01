@@ -26,11 +26,11 @@ class FGRawMaterialSelector(Document):
             output = []
             valid_fg_codes = (
                 ["B", "CP", "CPP", "CPPP", "D", "K", "PC", "PH", "PLB", "SB", "T", "TS", "W", "WR", "WRB","WRS", "WS", "WX", "WXS"] +  # ch_straight
-                ["BC", "BCE", "KC", "KCE"] +  # ch_corner
+                ["BC", "BCE", "KC", "KCE", "BCY", "KCY", "BCZ", "KCZ"] +  # ch_corner
                 ["CC", "CCL", "CCR", "IC", "ICB", "ICXB", "ICT", "ICX", "LS", "LSK", "LSL", "LSR", "LSW", "SL", "SLR"] +  # ic_straight
-                ["SC", "SCE", "SCY", "SCZ", "LSC", "LSCE"] +  # ic_corner
-                ["JL", "JLB", "JLT", "JLX", "JR", "JRB", "JRT", "JRX", "SX"] +  # j_straight
-                ["SXC", "SXCE"] +  # j_corner
+                ["SC", "SCE", "SCY", "SCZ", "LSC", "LSCE", "LSCK", "LSCEK", "LSCY", "LSCZ"] +  # ic_corner
+                ["JL", "JLB", "JLT", "JLX", "JR", "JRB", "JRT", "JRX", "SX", "LSX","LSXK"] +  # j_straight
+                ["SXC", "SXCE", "SXCY", "SXCZ", "LSXC", "LSXCE", "LSXCK", "LSXCEK"] +  # j_corner
                 ["PCE", "SBE", "TSE", "WRBSE", "WRSE", "WSE", "WXSE"] +  # t_straight
                 ["DP", "EB", "MB", "EC", "ECH", "ECT", "ECX", "ECB","ECK", "RK"]  # misc_straight
             )
@@ -214,11 +214,11 @@ class FGRawMaterialSelector(Document):
 
         # Define FG groups
         ch_straight = ["B", "CP", "CPP", "CPPP", "D", "K", "PC", "PH", "PLB", "SB", "T", "TS", "W", "WR", "WRS", "WRB", "WS", "WX", "WXS"]
-        ch_corner = ["BC", "BCE", "KC", "KCE"]
+        ch_corner = ["BC", "BCE", "BCY", "KC", "KCE", "BCZ", "KCY", "KCZ"]
         ic_straight = ["CC", "CCL", "CCR", "IC", "ICB", "ICT", "ICX","ICXB","LSK", "LS", "LSL", "LSR", "LSW", "SL", "SLR"]
-        ic_corner = ["SC", "SCE", "SCY", "SCZ", "LSC", "LSCE"]
-        j_straight = ["JL", "JLB", "JLT", "JLX", "JR", "JRB", "JRT", "JRX", "SX"]
-        j_corner = ["SXC", "SXCE"]
+        ic_corner = ["SC", "SCE", "SCY", "SCZ", "LSC", "LSCE", "LSCK", "LSCEK", "LSCY", "LSCZ"]
+        j_straight = ["JL", "JLB", "JLT", "JLX", "JR", "JRB", "JRT", "JRX", "SX", "LSX", "LSXK"]
+        j_corner = ["SXC", "SXCE", "SXCY", "SXCZ", "LSXC", "LSXCE", "LSXCK", "LSXCEK"]
         t_straight = ["PCE", "SBE", "TSE", "WRBSE", "WRSE", "WSE", "WXSE"]
         misc_straight = ["DP", "EB", "MB", "EC", "ECH", "ECT", "ECX", "ECK", "ECB", "RK"]
         wall_types = ["T", "TS", "W", "WR", "WRB", "WS", "WX", "WXS"]
@@ -254,7 +254,9 @@ class FGRawMaterialSelector(Document):
             (201, 225): ("230 L", "230 L", "CH SECTION"),
             (226, 250): ("255 L", "255 L", "CH SECTION"),
             (251, 275): ("280 L", "280 L", "CH SECTION"),
-            (276, 300): ("305 L", "305 L", "CH SECTION")
+            (276, 300): ("305 L", "305 L", "CH SECTION"),
+            (301, 600): ("AL SHEET", "130 L", "IC SECTION"),
+            (301, 600): ("AL SHEET", "155 L", "IC SECTION")
         }
 
         # L-section mappings for CH straight
@@ -308,7 +310,7 @@ class FGRawMaterialSelector(Document):
         # J section mappings
         j_sections = {
             (25, 50): ("J SEC", "-", "J SECTION"),
-            (51, 115): ("115 T", "-", "J SECTION"),
+            (25, 115): ("115 T", "-", "J SECTION"),
             (116, 250): ("AL SHEET", "-", "J SECTION")
         }
 
@@ -357,12 +359,14 @@ class FGRawMaterialSelector(Document):
             section_map = ch_l_sections_corner if is_corner else ch_l_sections_straight
             cut_dim1, cut_dim2 = str(l1), str(l2) if l2 else "-"
             if ch_straight:
-                if fg_code_part in ["WR","WRS"]:
+                if fg_code_part in ["WR","WRS",]:
                     cut_dim1, cut_dim2 = f"{l1-50}", f"{l2-50}"
             if is_corner:
                 if fg_code_part in ["BCE", "KCE"]:
                     cut_dim1, cut_dim2 = f"{l1+65+10}", f"{l2+65+10}"
-                elif fg_code_part in ["BC", "KC"]:
+                elif fg_code_part in ["BCY", "KCY"]:
+                    cut_dim1, cut_dim2 = f"{l1+65+10}", f"{l2+10}"
+                elif fg_code_part in ["BC", "KC", "BCZ", "KCZ"]:
                     cut_dim1, cut_dim2 = f"{l1+10}", f"{l2+10}"
                 else:
                     cut_dim1, cut_dim2 = str(l1), str(l2) if l2 else "-"
@@ -430,15 +434,17 @@ class FGRawMaterialSelector(Document):
                 cut_dim1 = f"{l1-4}"
             elif fg_code_part in ["ICT", "ICX"]:
                 cut_dim1 = f"{l1-8}"
-            if fg_code_part in ["SC", "LSC"]:
+            if fg_code_part in ["SC", "LSC","LSCK"]:
                 cut_dim1, cut_dim2 = f"{l1+10}" if l1 else "-", f"{l2+10}" if l2 else "-"
             elif fg_code_part == "SCE":
                 cut_dim1, cut_dim2 = f"{l1+b+10}", f"{l2+b+10}"
             elif fg_code_part == "SCY":
                 cut_dim1, cut_dim2 = f"{l1+10}", f"{l2+96+10}"
-            elif fg_code_part == "SCZ":
+            elif fg_code_part == "LSCY":
+                cut_dim1, cut_dim2 = f"{l1+10}", f"{l2+(b-4)+10}"
+            elif fg_code_part in ["SCZ","LSCZ"]:
                 cut_dim1, cut_dim2 = f"{(l1-4)+10}", f"{l2+10}"
-            elif fg_code_part == "LSCE":
+            elif fg_code_part in ["LSCE","LSCEK"]:
                 cut_dim1, cut_dim2 = f"{l1+b+10}", f"{l2+b+10}"
             cut_dim = f"{cut_dim1},{cut_dim2}" if is_corner else cut_dim1
 
@@ -502,34 +508,44 @@ class FGRawMaterialSelector(Document):
             cut_dim1, cut_dim2 = str(l1), str(l2) if l2 else "-"
             if fg_code_part in ["JLT", "JRT", "JLX", "JRX"]:
                 cut_dim1 = f"{l1-8}"
+            elif fg_code_part in ["LSX"]:
+                cut_dim1 = f"{l1}"
             elif fg_code_part in ["JL", "JLB", "JLT", "JLX", "JR", "JRB", "JRT", "JRX"]:
                 cut_dim1 = f"{l1-4}"
-            elif fg_code_part in ["SXC", "SXCE"]:
-                cut_dim1 = f"{l1+10}" if fg_code_part == "SXC" else f"{l1+b+10}"
-                cut_dim2 = f"{l2+10}" if fg_code_part == "SXC" else f"{l2+b+10}"
-            for (min_a, max_a), (rm1, rm2, remark) in j_sections.items():
-                if min_a <= a <= max_a:
-                    cut_dim = f"{cut_dim1},{cut_dim2}" if is_corner else cut_dim1
-                    if rm1 == "AL SHEET" and not is_corner:
-                        cut_dim = f"{a+65}X{l1}X4"
-                    elif rm1 == "AL SHEET" and is_corner:
-                        cut_dim = f"{a+65}X{l1}X4,{a+65}X{l2}X4"
-                    raw_materials.append({"code": rm1, "dimension": cut_dim, "remark": remark, "quantity": 1})
-                    frappe.log_error(message=f"J {'Corner' if is_corner else 'Straight'}: A={a} in range {min_a}-{max_a}, using RM1={rm1}, Cut={cut_dim}", title="J Section Logic")
-                    # Check for A in 25-50 and B = 100 to skip RM2
-                    if not (25 <= a <= 50 and b == 100):
-                        # Only add RM2 if A >= 51 or if A is outside 25-50
-                        for (min_b, max_b), (rm2, remark) in j_l_sections.items():
-                            if min_b <= b <= max_b:
-                                cut_dim = f"{cut_dim1},{cut_dim2}" if is_corner else cut_dim1
-                                raw_materials.append({"code": rm2, "dimension": cut_dim, "remark": remark, "quantity": 1})
-                                frappe.log_error(message=f"J {'Corner' if is_corner else 'Straight'}: B={b} in range {min_b}-{max_b}, using RM2={rm2}, Cut={cut_dim}", title="J Section Logic")
-                                break
-                    else:
-                        frappe.log_error(message=f"J {'Corner' if is_corner else 'Straight'}: A={a} in 25-50 and B={b} == 100, skipping RM2 as per logic", title="J Section Logic")
-                    break
+            elif fg_code_part in ["SXC", "SXCE", "SXCZ", "LSXC","LSXCK","LSXCE","LSXCEK"]:
+                cut_dim1 = f"{l1+10}" if fg_code_part in ["SXC","SXCZ","LSXCK"] else f"{l1+b+10}"
+                cut_dim2 = f"{l2+10}" if fg_code_part in ["SXC","SXCZ","LSXCK"] else f"{l2+b+10}"
+            elif fg_code_part in ["SXCY"]:
+                cut_dim1 = f"{l1+10}"
+                cut_dim2 = f"{l2+96+10}" if any(rm["code"] == "J SEC" for rm in raw_materials) else f"{l2+10}"
+            cut_dim = f"{cut_dim1},{cut_dim2}" if is_corner else cut_dim1
+            if (a <= 50 and b == 100) or (b <= 50 and a == 100):
+                raw_materials.append({"code": "J SEC", "dimension": cut_dim, "remark": "J SECTION", "quantity": 1})
+                frappe.log_error(message=f"J {'Corner' if is_corner else 'Straight'}: A={a}, B={b}, FG={fg_code_part}, Using J SEC due to A<=50 and B=100 or B<=50 and A=100, Cut={cut_dim}", title="J Section Logic")
+            else:
+                for (min_a, max_a), (rm1, rm2, remark) in j_sections.items():
+                    if min_a <= a <= max_a:
+                        cut_dim = f"{cut_dim1},{cut_dim2}" if is_corner else cut_dim1
+                        if rm1 == "AL SHEET" and not is_corner:
+                            cut_dim = f"{a+65}X{l1}X4"
+                        elif rm1 == "AL SHEET" and is_corner:
+                            cut_dim = f"{a+65}X{l1}X4,{a+65}X{l2}X4"
+                        raw_materials.append({"code": rm1, "dimension": cut_dim, "remark": remark, "quantity": 1})
+                        frappe.log_error(message=f"J {'Corner' if is_corner else 'Straight'}: A={a} in range {min_a}-{max_a}, using RM1={rm1}, Cut={cut_dim}", title="J Section Logic")
+                        # Check for A in 25-50 and B = 100 to skip RM2
+                        if not (25 <= a <= 50 and b == 100) or (25 <= b <= 50 and a == 100):
+                            # Only add RM2 if A >= 51 or if A is outside 25-50
+                            for (min_b, max_b), (rm2, remark) in j_l_sections.items():
+                                if min_b <= b <= max_b:
+                                    cut_dim = f"{cut_dim1},{cut_dim2}" if is_corner else cut_dim1
+                                    raw_materials.append({"code": rm2, "dimension": cut_dim, "remark": remark, "quantity": 1})
+                                    frappe.log_error(message=f"J {'Corner' if is_corner else 'Straight'}: B={b} in range {min_b}-{max_b}, using RM2={rm2}, Cut={cut_dim}", title="J Section Logic")
+                                    break
+                        else:
+                            frappe.log_error(message=f"J {'Corner' if is_corner else 'Straight'}: A={a} in 25-50 and B={b} == 100, skipping RM2 as per logic", title="J Section Logic")
+                        break
             # Child parts logic
-            if fg_code_part in ["SX", "SXC", "SXCE"]:
+            if fg_code_part in ["SX", "SXC", "SXCE", "LSX", "LSXC", "SXCZ", "SXCY", "LSXCK", "LSXCE", "LSXCEK"]:
                 side_rail_dim = f"{b-16}" if any(rm["code"] == "J SEC" for rm in raw_materials) else f"{b-12}"
                 stiff_qty = 5 if fg_code_part == "SX" else 2
                 child_parts.append({"code": "SIDE RAIL", "dimension": side_rail_dim, "remark": "CHILD PART", "quantity": 2})

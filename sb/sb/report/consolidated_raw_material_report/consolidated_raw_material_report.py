@@ -68,8 +68,8 @@ def execute(filters=None):
             b = item.get("b", 0)
             sec_code = item.get("code", "")
             l1, l2 = parse_dimension(item.get("dimension"))
-            # l1 = item.get("l1", 0)
-            # l2 = item.get("l2", 0)
+            bom_l1 = item.get("l1", 0)
+            bom_l2 = item.get("l2", 0)
             bom_qty = item.get("bom_qty", 0)
             dwg_no = item.get("dwn_no", "")
             u_area = item.get("u_area", "")
@@ -86,8 +86,8 @@ def execute(filters=None):
                     "a": a,
                     "b": b,
                     "code": sec_code,
-                    "l1": l1,
-                    "l2": l2,
+                    "l1": bom_l1,
+                    "l2": bom_l2,
                     "dwg_no": dwg_no,
                     "fg_code": fg_code,
                     "total_quantity": bom_qty,
@@ -130,6 +130,10 @@ def execute(filters=None):
             part_fieldname = None
             if item_code in predefined_child_parts:
                 part_fieldname = predefined_child_parts[item_code]
+
+            ## Check if item section matches not with "Misc Section"
+            if part_fieldname == "rocker" and remark == "MISC SECTION":
+                part_fieldname = None
             elif remark == "CHILD PART":
                 for part_name, field_name in predefined_child_parts.items():
                     if part_name in item_code or item_code in part_name:
