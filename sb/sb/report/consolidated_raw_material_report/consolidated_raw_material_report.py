@@ -61,7 +61,7 @@ def execute(filters=None):
             fg_code = (item.get("fg_code") or "").upper()
             item_ipo_name = (item.get("ipo_name") or "").upper()
             item_project = item.get("project", "")
-            project_design_item_reference = item.get("project_design_item_reference") or ""
+            planning_bom_item_reference = item.get("planning_bom_item_reference") or ""
             l1, l2 = parse_dimension(item.get("dimension"))
             quantity = int(flt(item.get("quantity", 0)))
             a = item.get("a", 0)
@@ -75,7 +75,7 @@ def execute(filters=None):
             u_area = item.get("u_area", "")
             fg_code = fg_code or item.get("fg_code", "")
 
-            consolidation_key = project_design_item_reference or f"{fg_code}_{item_ipo_name}_{item_project}_{item_code}"
+            consolidation_key = planning_bom_item_reference or f"{fg_code}_{item_ipo_name}_{item_project}_{item_code}"
 
             if consolidation_key not in consolidated:
                 consolidated[consolidation_key] = {

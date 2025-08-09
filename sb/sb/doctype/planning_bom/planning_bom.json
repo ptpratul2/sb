@@ -49,13 +49,13 @@
    "fieldname": "project_design_upload",
    "fieldtype": "Table MultiSelect",
    "label": "Project Design Upload",
-   "options": "BOM Multiselect"
+   "options": "Project Design Multiselect"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-07-01 10:57:01.565822",
+ "modified": "2025-08-09 22:40:34.078137",
  "modified_by": "Administrator",
  "module": "Sb",
  "name": "Planning BOM",

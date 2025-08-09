@@ -16,7 +16,8 @@
   "u_area",
   "fg_code",
   "raw_material_code",
-  "project_design_item_reference",
+  "planning_bom",
+  "planning_bom_item_reference",
   "item_code",
   "dimension",
   "remark",
@@ -46,13 +47,6 @@
    "label": "Raw Material Code"
   },
   {
-   "fieldname": "project_design_item_reference",
-   "fieldtype": "Link",
-   "label": "Project Design item Reference",
-   "options": "FG Components",
-    "read_only": 1
-  },
-  {
    "fieldname": "item_code",
    "fieldtype": "Link",
    "label": "Item Code",
@@ -69,6 +63,7 @@
    "label": "Remark"
   },
   {
+   "fetch_from": "planning_bom_item_reference.project",
    "fieldname": "project",
    "fieldtype": "Link",
    "label": "Project",
@@ -181,21 +176,35 @@
    "fieldname": "dwn_no",
    "fieldtype": "Data",
    "label": "DWN NO",
-    "read_only": 1
+   "read_only": 1
   },
   {
-   "fetch_from": "project_design_item_reference.u_area",
+   "fetch_from": "planning_bom_item_reference.u_area",
    "fieldname": "u_area",
    "fieldtype": "Float",
    "label": "U Area",
    "read_only": 1
+  },
+  {
+   "fieldname": "planning_bom_item_reference",
+   "fieldtype": "Link",
+   "hidden": 1,
+   "label": "Planning BOM item Reference",
+   "options": "FG Components",
+   "read_only": 1
+  },
+  {
+   "fieldname": "planning_bom",
+   "fieldtype": "Link",
+   "label": "Planning BOM",
+   "options": "Planning BOM"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "istable": 1,
  "links": [],
- "modified": "2025-07-28 22:49:28.693531",
+ "modified": "2025-08-10 01:53:31.753006",
  "modified_by": "Administrator",
  "module": "Sb",
  "name": "FG Raw Material Item",

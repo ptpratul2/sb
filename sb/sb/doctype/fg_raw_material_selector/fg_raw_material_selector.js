@@ -2,19 +2,19 @@ frappe.ui.form.on('FG Raw Material Selector', {
     refresh: function(frm) {
         if (!frm.is_new()) {
             frm.add_custom_button(__('Fetch Raw Materials'), function () {
-                if (!frm.doc.project_design_upload || frm.doc.project_design_upload.length === 0) {
+                if (!frm.doc.planning_bom || frm.doc.planning_bom.length === 0) {
                     frappe.msgprint(__('Please select at least one Project Design Upload.'));
                     return;
                 }
 
-                const pdu_list = frm.doc.project_design_upload.map(row => row.project_design_upload);
+                const pdu_list = frm.doc.planning_bom.map(row => row.planning_bom);
                 frappe.show_alert({ message: __('Queuing raw material processing...'), indicator: 'blue' });
 
                 frappe.call({
                     method: 'sb.sb.doctype.fg_raw_material_selector.fg_raw_material_selector.get_raw_materials',
                     args: {
                         docname: frm.doc.name,
-                        project_design_upload: pdu_list
+                        planning_bom: pdu_list
                     },
                     callback: function (r) {
                         if (!r.exc) {

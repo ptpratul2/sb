@@ -14,7 +14,8 @@ class PlanningBOM(Document):
 @frappe.whitelist()
 def consolidate_project_design_uploads(docname):
     """
-    Consolidate multiple Project Design Upload documents into Planning BOM
+    Append all items from selected Project Design Upload documents
+    into Planning BOM without consolidation (as-is).
     """
     doc = frappe.get_doc("Planning BOM", docname)
     
@@ -24,58 +25,84 @@ def consolidate_project_design_uploads(docname):
     # Clear existing items
     doc.set("items", [])
     
-    # Dictionary to store consolidated items
-    consolidated_items = {}
+    item_count = 0
     
     # Process each selected Project Design Upload
     for row in doc.project_design_upload:
-        design_upload_name = row.project_design_upload
-        
-        # Get the Project Design Upload document
+        design_upload_name = row.project_design
         design_upload_doc = frappe.get_doc("Project Design Upload", design_upload_name)
         
-        # Process each item in the design upload
+        # Directly append each item without consolidation
         for item in design_upload_doc.items:
-            # Create a unique key for consolidation
-            # You can modify this key based on your consolidation logic
-            key = f"{item.get('fg_code')}_{item.get('item_code')}_{item.get('dimension')}"
-            
-            if key in consolidated_items:
-                # If item already exists, add quantities
-                consolidated_items[key]['quantity'] = flt(consolidated_items[key].get('quantity', 0)) + flt(item.get('quantity', 0))
-            else:
-                # Create new consolidated item
-                consolidated_items[key] = {
-                    'fg_code': item.get('fg_code'),
-                    'item_code': item.get('item_code'),
-                    'dimension': item.get('dimension'),
-                    'quantity': flt(item.get('quantity', 0)),
-                    'remark': item.get('remark'),
-                    'project': item.get('project'),
-                    'ipo_name': item.get('ipo_name'),
-                    # Add other fields as needed
-                    'a': item.get('a'),
-                    'b': item.get('b'),
-                    'code': item.get('code'),
-                    'l1': item.get('l1'),
-                    'l2': item.get('l2'),
-                    'dwg_no': item.get('dwg_no'),
-                    'u_area': item.get('u_area'),
-                    'source_document': design_upload_name  # Track source
-                }
-    
-    # Add consolidated items to Planning BOM
-    for item_data in consolidated_items.values():
-        doc.append("items", item_data)
+            doc.append("items", {
+                'project_design_upload': item.get('parent'),
+                'project_design_upload_item': item.get('name'),
+                'fg_code': item.get('fg_code'),
+                'item_code': item.get('item_code'),
+                'dimension': item.get('dimension'),
+                'quantity': flt(item.get('quantity', 0)),
+                'remark': item.get('remark'),
+                'project': item.get('project'),
+                'ipo_name': item.get('ipo_name'),
+                'a': item.get('a'),
+                'b': item.get('b'),
+                'code': item.get('code'),
+                'l1': item.get('l1'),
+                'l2': item.get('l2'),
+                'dwg_no': item.get('dwg_no'),
+                'u_area': item.get('u_area'),
+                'source_document': design_upload_name
+            })
+            item_count += 1
     
     # Save the document
     doc.save()
     
     return {
-        "status": "success", 
-        "message": f"Successfully consolidated {len(consolidated_items)} unique items from {len(doc.project_design_upload)} Project Design Upload documents"
+        "status": "success",
+        "message": f"Successfully appended {item_count} items from {len(doc.project_design_upload)} Project Design Upload documents without consolidation"
     }
+@frappe.whitelist()
+def get_consolidation_preview(docname):
+    """
+    Preview all items from selected Project Design Upload documents
+    without consolidation (as-is).
+    """
+    doc = frappe.get_doc("Planning BOM", docname)
+    
+    if not doc.project_design_upload:
+        return {"preview": []}
+    
+    preview = []
+    total_qty = 0
+    total_unit_area = 0
 
+    for row in doc.project_design_upload:
+        design_upload_doc = frappe.get_doc("Project Design Upload", row.project_design)
+        
+        for item in design_upload_doc.items:
+            quantity = flt(item.get('quantity', 0))
+            u_area = flt(item.get('u_area', 0))
+
+            preview.append({
+                'fg_code': item.get('fg_code'),
+                'item_code': item.get('item_code'),
+                'dimension': item.get('dimension'),
+                'quantity': quantity,
+                'u_area': u_area,  # ✅ include u_area in each row
+                'project': item.get('project'),
+                'source_document': row.project_design
+            })
+
+            total_qty += quantity
+            total_unit_area += u_area  # ✅ accumulate while iterating
+    
+    return {
+        "preview": preview,
+        "total_items": len(preview),
+        "total_quantity": total_qty,
+        "total_unit_area": total_unit_area
+    }
 
 @frappe.whitelist()
 def get_project_design_upload_summary(docname):
@@ -91,12 +118,12 @@ def get_project_design_upload_summary(docname):
     total_items = 0
     
     for row in doc.project_design_upload:
-        design_upload_doc = frappe.get_doc("Project Design Upload", row.project_design_upload)
+        design_upload_doc = frappe.get_doc("Project Design Upload", row.project_design)
         item_count = len(design_upload_doc.items)
         total_items += item_count
         
         summary.append({
-            "name": row.project_design_upload,
+            "name": row.project_design,
             "project": design_upload_doc.project,
             "upload_date": design_upload_doc.upload_date,
             "item_count": item_count,
@@ -107,47 +134,4 @@ def get_project_design_upload_summary(docname):
         "summary": summary,
         "total_documents": len(doc.project_design_upload),
         "total_items": total_items
-    }
-
-
-@frappe.whitelist()
-def get_consolidation_preview(docname):
-    """
-    Preview consolidation results without saving
-    """
-    doc = frappe.get_doc("Planning BOM", docname)
-    
-    if not doc.project_design_upload:
-        return {"preview": []}
-    
-    consolidated_items = {}
-    
-    for row in doc.project_design_upload:
-        design_upload_doc = frappe.get_doc("Project Design Upload", row.project_design_upload)
-        
-        for item in design_upload_doc.items:
-            key = f"{item.get('fg_code')}_{item.get('item_code')}_{item.get('dimension')}"
-            
-            if key in consolidated_items:
-                consolidated_items[key]['quantity'] += flt(item.get('quantity', 0))
-                consolidated_items[key]['source_count'] += 1
-                consolidated_items[key]['sources'].append(row.project_design_upload)
-            else:
-                consolidated_items[key] = {
-                    'fg_code': item.get('fg_code'),
-                    'item_code': item.get('item_code'),
-                    'dimension': item.get('dimension'),
-                    'quantity': flt(item.get('quantity', 0)),
-                    'remark': item.get('remark'),
-                    'project': item.get('project'),
-                    'source_count': 1,
-                    'sources': [row.project_design_upload]
-                }
-    
-    preview = list(consolidated_items.values())
-    
-    return {
-        "preview": preview,
-        "total_unique_items": len(preview),
-        "total_quantity": sum(item['quantity'] for item in preview)
     }

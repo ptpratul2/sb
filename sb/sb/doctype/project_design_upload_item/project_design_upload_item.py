@@ -5,5 +5,5 @@
 from frappe.model.document import Document
 
 
-class BOMMultiselect(Document):
+class ProjectDesignUploadItem(Document):
 	pass
