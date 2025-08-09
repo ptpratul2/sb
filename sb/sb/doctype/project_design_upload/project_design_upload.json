@@ -23,7 +23,7 @@
    "fieldname": "items",
    "fieldtype": "Table",
    "label": "items",
-   "options": "FG Components"
+   "options": "Project Design Upload Item"
   },
   {
    "fieldname": "column_break_migr",
@@ -54,7 +54,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-05-27 10:12:50.540040",
+ "modified": "2025-08-10 01:25:38.466239",
  "modified_by": "Administrator",
  "module": "Sb",
  "name": "Project Design Upload",

@@ -1,123 +1,188 @@
-# Copyright (c) 2025, ptpratul2@gmail.com and contributors
-# For license information, please see license.txt
+# fg_raw_material_selector.py
+# Copyright (c) 2025
+# For license information, see license.txt
+
 import frappe
 from frappe import _
 from frappe.model.document import Document
-import math
 import json
 from frappe.utils.background_jobs import enqueue
-from frappe.utils import now
+from frappe.utils import flt
 
 class FGRawMaterialSelector(Document):
     def validate(self):
-        frappe.log_error(message=f"Validating FG Raw Material Selector: {self.name}", title="FG Validation Debug")
+        frappe.log_error(
+            message=f"Validating FG Raw Material Selector: {self.name}",
+            title="FG Validation Debug"
+        )
         pass
 
     def process_fg_codes(self):
         try:
-            frappe.log_error(message=f"Starting process_fg_codes for document: {self.name}", title="FG Process Debug")
-            # Log only serializable PDU names
-            pdu_names = [row.get("project_design_upload") for row in self.project_design_upload if row.get("project_design_upload")]
-            frappe.log_error(message=f"Processing PDUs: {json.dumps(pdu_names, indent=2)}", title="FG Process Debug")
-            if not self.project_design_upload or not isinstance(self.project_design_upload, list):
-                frappe.log_error(message="No Project Design Uploads selected or invalid format.", title="FG Raw Material Error")
-                frappe.throw("No Project Design Uploads selected or invalid format.")
-
-            output = []
-            valid_fg_codes = (
-                ["B", "CP", "CPP", "CPPP", "D", "K", "PC", "PH", "PLB", "SB", "T", "TS", "W", "WR", "WRB","WRS", "WS", "WX", "WXS"] +  # ch_straight
-                ["BC", "BCE", "KC", "KCE"] +  # ch_corner
-                ["CC", "CCL", "CCR", "IC", "ICB", "ICXB", "ICT", "ICX", "LS", "LSK", "LSL", "LSR", "LSW", "SL", "SLR"] +  # ic_straight
-                ["SC", "SCE", "SCY", "SCZ", "LSC", "LSCE"] +  # ic_corner
-                ["JL", "JLB", "JLT", "JLX", "JR", "JRB", "JRT", "JRX", "SX"] +  # j_straight
-                ["SXC", "SXCE"] +  # j_corner
-                ["PCE", "SBE", "TSE", "WRBSE", "WRSE", "WSE", "WXSE"] +  # t_straight
-                ["DP", "EB", "MB", "EC", "ECH", "ECT", "ECX", "ECB","ECK", "RK"]  # misc_straight
+            frappe.log_error(
+                message=f"Starting process_fg_codes for document: {self.name}",
+                title="FG Process Debug"
             )
 
-            # Batch processing setup
-            batch_size = 100  # Process 100 FG codes at a time
+            # Collect Planning BOM names from planning_bom child table
+            pbom_names = [row.get("planning_bom") for row in self.planning_bom if row.get("planning_bom")]
+            frappe.log_error(
+                message=f"Processing Planning BOMs: {json.dumps(pbom_names, indent=2)}",
+                title="FG Process Debug"
+            )
+
+            # if not self.planning_bom or not isinstance(self.planning_bom, list):
+            #     frappe.log_error(
+            #         message="No Planning BOMs selected or invalid format.",
+            #         title="FG Raw Material Error"
+            #     )
+            #     frappe.throw("No Planning BOMs selected or invalid format.")
+
+            output = []
+
+            valid_fg_codes = (
+                ["B", "CP", "CPP", "CPPP", "D", "K", "PC", "PH", "PLB", "SB",
+                 "T", "TS", "W", "WR", "WRB", "WRS", "WS", "WX", "WXS"] +
+                ["BC", "BCE", "KC", "KCE", "BCY", "KCY", "BCZ", "KCZ"] +
+                ["CC", "CCL", "CCR", "IC", "ICB", "ICXB", "ICT", "ICX",
+                 "LS", "LSK", "LSL", "LSR", "LSW", "SL", "SLR"] +
+                ["SC", "SCE", "SCY", "SCZ", "LSC", "LSCE", "LSCK", "LSCEK", "LSCY", "LSCZ"] +
+                ["JL", "JLB", "JLT", "JLX", "JR", "JRB", "JRT", "JRX",
+                 "SX", "LSX", "LSXK"] +
+                ["SXC", "SXCE", "SXCY", "SXCZ", "LSXC", "LSXCE", "LSXCK", "LSXCEK"] +
+                ["PCE", "SBE", "TSE", "WRBSE", "WRSE", "WSE", "WXSE"] +
+                ["DP", "EB", "MB", "EC", "ECH", "ECT", "ECX", "ECB",
+                 "ECK", "RK"]
+            )
+
+            batch_size = 100
             fg_codes_all = []
-            for pdu_entry in self.project_design_upload:
-                pdu_name = pdu_entry.get("project_design_upload")
-                if not pdu_name or not isinstance(pdu_name, str):
-                    frappe.log_error(message=f"Invalid Project Design Upload name: {pdu_name}", title="FG Raw Material Error")
+
+            for pbom_entry in self.planning_bom:
+                pbom_name = pbom_entry.get("planning_bom")
+                if not pbom_name or not isinstance(pbom_name, str):
+                    frappe.log_error(
+                        message=f"Invalid Planning BOM name: {pbom_name}",
+                        title="FG Raw Material Error"
+                    )
                     continue
 
                 try:
-                    project_design = frappe.get_doc("Project Design Upload", pdu_name)
-                    frappe.log_error(message=f"Fetched Project Design Upload: {pdu_name}", title="FG Process Debug")
+                    pbom_doc = frappe.get_doc("Planning BOM", pbom_name)
+                    frappe.log_error(
+                        message=f"Fetched Planning BOM: {pbom_name}",
+                        title="FG Process Debug"
+                    )
                 except frappe.DoesNotExistError:
-                    frappe.log_error(message=f"Project Design Upload {pdu_name} not found", title="FG Raw Material Error")
+                    frappe.log_error(
+                        message=f"Planning BOM {pbom_name} not found",
+                        title="FG Raw Material Error"
+                    )
                     continue
 
-                pdu_project = project_design.get("project")
-                fg_codes = project_design.get("items", [])
-                fg_codes_serializable = [
+                pbom_project = pbom_doc.get("project")
+                pbom_items = pbom_doc.get("items", [])
+
+                pbom_items_serializable = [
                     {
                         "fg_code": fg.get("fg_code"),
                         "quantity": fg.get("quantity"),
                         "uom": fg.get("uom"),
-                        "ipo_name": fg.get("ipo_name")
-                    } for fg in fg_codes
+                        "ipo_name": fg.get("ipo_name"),
+                        "a": fg.get("a"),
+                        "b": fg.get("b"),
+                        "code": fg.get("code"),
+                        "l1": fg.get("l1"),
+                        "l2": fg.get("l2"),
+                        "u_area": fg.get("u_area")
+                    } for fg in pbom_items
                 ]
-                frappe.log_error(message=f"FG Codes for PDU {pdu_name}: {json.dumps(fg_codes_serializable, indent=2)}", title="FG Process Debug")
-                if not fg_codes:
-                    frappe.msgprint(f"No FG Components found for Project Design Upload: {pdu_name}")
-                    frappe.log_error(message=f"No FG Components found for Project Design Upload: {pdu_name}", title="FG Raw Material Error")
+                frappe.log_error(
+                    message=f"FG Codes for PBOM {pbom_name}: {json.dumps(pbom_items_serializable, indent=2)}",
+                    title="FG Process Debug"
+                )
+
+                if not pbom_items:
+                    frappe.msgprint(f"No FG Components found for Planning BOM: {pbom_name}")
+                    frappe.log_error(
+                        message=f"No FG Components found for Planning BOM: {pbom_name}",
+                        title="FG Raw Material Error"
+                    )
                     continue
 
-                fg_codes_all.extend([(fg_component, pdu_project, pdu_name) for fg_component in fg_codes])
+                fg_codes_all.extend([(fg_component, pbom_project, pbom_name) for fg_component in pbom_items])
 
-            # Clear existing raw materials only if new data is being processed
             if fg_codes_all:
                 self.raw_materials = []
-                frappe.log_error(message="Cleared existing raw_materials table.", title="FG Process Debug")
+                frappe.log_error(
+                    message="Cleared existing raw_materials table.",
+                    title="FG Process Debug"
+                )
             else:
-                frappe.log_error(message="No FG codes to process. Skipping raw_materials clear.", title="FG Process Debug")
+                frappe.log_error(
+                    message="No FG codes to process. Skipping raw_materials clear.",
+                    title="FG Process Debug"
+                )
 
-            # Process FG codes in batches
+            # Process in batches
             for i in range(0, len(fg_codes_all), batch_size):
                 batch = fg_codes_all[i:i + batch_size]
-                for fg_component, pdu_project, pdu_name in batch:
+                for fg_component, pbom_project, pbom_name in batch:
                     fg_code = fg_component.get("fg_code")
                     component_quantity = fg_component.get("quantity", 1)
                     component_uom = fg_component.get("uom")
                     ipo_name = fg_component.get("ipo_name")
-                    a= fg_component.get("a", 0)
-                    b= fg_component.get("b", 0)
-                    sec_code = fg_component.get("code","")
+                    a = fg_component.get("a", 0)
+                    b = fg_component.get("b", 0)
+                    sec_code = fg_component.get("code", "")
                     l1 = fg_component.get("l1", 0)
                     l2 = fg_component.get("l2", 0)
-                    bom_qty=fg_component.get("quantity", 0)
-                
-                    project_design_item_reference = fg_component.get("name")
-
+                    bom_qty = fg_component.get("quantity", 0)
+                    planning_bom_item_reference = fg_component.get("name")
 
                     if not fg_code or not isinstance(fg_code, str):
-                        frappe.log_error(message=f"Invalid FG Code in PDU: {pdu_name}, FG Code: {fg_code}", title="FG Raw Material Error")
+                        frappe.log_error(
+                            message=f"Invalid FG Code in PBOM: {pbom_name}, FG Code: {fg_code}",
+                            title="FG Raw Material Error"
+                        )
                         continue
 
                     parts = fg_code.split('|')
                     if len(parts) != 5 or parts[2] not in valid_fg_codes:
-                        frappe.log_error(message=f"Skipping invalid FG Code: {fg_code} in PDU: {pdu_name}", title="FG Raw Material Error")
+                        frappe.log_error(
+                            message=f"Skipping invalid FG Code: {fg_code} in PBOM: {pbom_name}",
+                            title="FG Raw Material Error"
+                        )
                         continue
 
                     try:
                         raw_materials = self.process_single_fg_code(fg_code)
-                        frappe.log_error(message=f"Processed FG Code {fg_code}: {json.dumps(raw_materials, indent=2)}", title="FG Process Debug")
+                        frappe.log_error(
+                            message=f"Processed FG Code {fg_code}: {json.dumps(raw_materials, indent=2)}",
+                            title="FG Process Debug"
+                        )
                         if not isinstance(raw_materials, list):
-                            frappe.log_error(message=f"Invalid data for FG Code '{fg_code}': {raw_materials}", title="FG Raw Material Error")
+                            frappe.log_error(
+                                message=f"Invalid data for FG Code '{fg_code}': {raw_materials}",
+                                title="FG Raw Material Error"
+                            )
                             continue
                     except Exception as e:
-                        frappe.log_error(message=f"Error processing FG Code '{fg_code}' in PDU {pdu_name}: {str(e)}", title="FG Raw Material Error")
+                        frappe.log_error(
+                            message=f"Error processing FG Code '{fg_code}' in PBOM {pbom_name}: {str(e)}",
+                            title="FG Raw Material Error"
+                        )
                         continue
 
                     rm_table = []
                     for rm in raw_materials:
                         if not isinstance(rm, dict):
-                            frappe.log_error(message=f"Invalid raw material for FG Code '{fg_code}': {rm}", title="FG Raw Material Error")
+                            frappe.log_error(
+                                message=f"Invalid raw material for FG Code '{fg_code}': {rm}",
+                                title="FG Raw Material Error"
+                            )
                             continue
+
                         rm_quantity = rm.get("quantity", 1) * component_quantity
                         rm_entry = {
                             "fg_code": fg_code,
@@ -132,43 +197,51 @@ class FGRawMaterialSelector(Document):
                             "dimension": rm.get("dimension"),
                             "remark": rm.get("remark"),
                             "quantity": rm_quantity,
-                            "project": pdu_project,
+                            "project": pbom_project,
                             "ipo_name": ipo_name,
-                            "project_design_upload": pdu_name,
+                            "planning_bom": pbom_name,
                             "status": rm.get("status"),
                             "warehouse": rm.get("warehouse"),
-                            "project_design_item_reference": project_design_item_reference
+                            "planning_bom_item_reference": planning_bom_item_reference
                         }
                         if component_uom:
                             rm_entry["uom"] = component_uom
 
                         rm_table.append(rm_entry)
-                        
+
                         try:
                             self.append("raw_materials", rm_entry)
-                            frappe.log_error(message=f"Appended raw material for FG Code '{fg_code}': {json.dumps(rm_entry, indent=2)}", title="FG Process Debug")
+                            frappe.log_error(
+                                message=f"Appended raw material for FG Code '{fg_code}': {json.dumps(rm_entry, indent=2)}",
+                                title="FG Process Debug"
+                            )
                         except Exception as e:
-                            frappe.log_error(message=f"Error appending raw material for FG Code '{fg_code}': {str(e)}", title="FG Raw Material Error")
+                            frappe.log_error(
+                                message=f"Error appending raw material for FG Code '{fg_code}': {str(e)}",
+                                title="FG Raw Material Error"
+                            )
                             continue
 
                     output.append({
                         "fg_code": fg_code,
-                        "project_design_upload": pdu_name,
+                        "planning_bom": pbom_name,
                         "raw_materials": rm_table
                     })
 
             if output:
-                frappe.log_error(message=f"Processing output: {json.dumps(output, indent=2)}", title="FG Raw Material Output")
+                frappe.log_error(
+                    message=f"Processing output: {json.dumps(output, indent=2)}",
+                    title="FG Raw Material Output"
+                )
             else:
                 frappe.msgprint("No valid FG codes processed. Check the Error Log for details.")
-                frappe.log_error(message="No valid FG codes processed.", title="FG Raw Material Error")
+                frappe.log_error(
+                    message="No valid FG codes processed.",
+                    title="FG Raw Material Error"
+                )
 
-            # Save the document after processing
-            frappe.log_error(message=f"Before saving document {self.name}", title="FG Save Debug")
             self.save()
-            frappe.log_error(message=f"After saving document {self.name}", title="FG Save Debug")
 
-            # Notify user of completion
             frappe.publish_realtime(
                 event='fg_materials_done',
                 message='FG Raw Material processing completed successfully.',
@@ -177,13 +250,15 @@ class FGRawMaterialSelector(Document):
             )
 
         except Exception as e:
-            frappe.log_error(message=f"Error in process_fg_codes: {str(e)}", title="FG Raw Material Error")
+            frappe.log_error(
+                message=f"Error in process_fg_codes: {str(e)}",
+                title="FG Raw Material Error"
+            )
             frappe.publish_realtime(
                 event='msgprint',
                 message=f'Error processing FG codes: {str(e)}',
                 user=frappe.session.user
             )
-
     def process_single_fg_code(self, fg_code):
         def safe_int(val, default=0):
             try:
@@ -214,11 +289,11 @@ class FGRawMaterialSelector(Document):
 
         # Define FG groups
         ch_straight = ["B", "CP", "CPP", "CPPP", "D", "K", "PC", "PH", "PLB", "SB", "T", "TS", "W", "WR", "WRS", "WRB", "WS", "WX", "WXS"]
-        ch_corner = ["BC", "BCE", "KC", "KCE"]
+        ch_corner = ["BC", "BCE", "BCY", "KC", "KCE", "BCZ", "KCY", "KCZ"]
         ic_straight = ["CC", "CCL", "CCR", "IC", "ICB", "ICT", "ICX","ICXB","LSK", "LS", "LSL", "LSR", "LSW", "SL", "SLR"]
-        ic_corner = ["SC", "SCE", "SCY", "SCZ", "LSC", "LSCE"]
-        j_straight = ["JL", "JLB", "JLT", "JLX", "JR", "JRB", "JRT", "JRX", "SX"]
-        j_corner = ["SXC", "SXCE"]
+        ic_corner = ["SC", "SCE", "SCY", "SCZ", "LSC", "LSCE", "LSCK", "LSCEK", "LSCY", "LSCZ"]
+        j_straight = ["JL", "JLB", "JLT", "JLX", "JR", "JRB", "JRT", "JRX", "SX", "LSX", "LSXK"]
+        j_corner = ["SXC", "SXCE", "SXCY", "SXCZ", "LSXC", "LSXCE", "LSXCK", "LSXCEK"]
         t_straight = ["PCE", "SBE", "TSE", "WRBSE", "WRSE", "WSE", "WXSE"]
         misc_straight = ["DP", "EB", "MB", "EC", "ECH", "ECT", "ECX", "ECK", "ECB", "RK"]
         wall_types = ["T", "TS", "W", "WR", "WRB", "WS", "WX", "WXS"]
@@ -254,7 +329,9 @@ class FGRawMaterialSelector(Document):
             (201, 225): ("230 L", "230 L", "CH SECTION"),
             (226, 250): ("255 L", "255 L", "CH SECTION"),
             (251, 275): ("280 L", "280 L", "CH SECTION"),
-            (276, 300): ("305 L", "305 L", "CH SECTION")
+            (276, 300): ("305 L", "305 L", "CH SECTION"),
+            (301, 600): ("AL SHEET", "130 L", "IC SECTION"),
+            (301, 600): ("AL SHEET", "155 L", "IC SECTION")
         }
 
         # L-section mappings for CH straight
@@ -308,7 +385,7 @@ class FGRawMaterialSelector(Document):
         # J section mappings
         j_sections = {
             (25, 50): ("J SEC", "-", "J SECTION"),
-            (51, 115): ("115 T", "-", "J SECTION"),
+            (25, 115): ("115 T", "-", "J SECTION"),
             (116, 250): ("AL SHEET", "-", "J SECTION")
         }
 
@@ -357,12 +434,14 @@ class FGRawMaterialSelector(Document):
             section_map = ch_l_sections_corner if is_corner else ch_l_sections_straight
             cut_dim1, cut_dim2 = str(l1), str(l2) if l2 else "-"
             if ch_straight:
-                if fg_code_part in ["WR","WRS"]:
+                if fg_code_part in ["WR","WRS",]:
                     cut_dim1, cut_dim2 = f"{l1-50}", f"{l2-50}"
             if is_corner:
                 if fg_code_part in ["BCE", "KCE"]:
                     cut_dim1, cut_dim2 = f"{l1+65+10}", f"{l2+65+10}"
-                elif fg_code_part in ["BC", "KC"]:
+                elif fg_code_part in ["BCY", "KCY"]:
+                    cut_dim1, cut_dim2 = f"{l1+65+10}", f"{l2+10}"
+                elif fg_code_part in ["BC", "KC", "BCZ", "KCZ"]:
                     cut_dim1, cut_dim2 = f"{l1+10}", f"{l2+10}"
                 else:
                     cut_dim1, cut_dim2 = str(l1), str(l2) if l2 else "-"
@@ -430,15 +509,17 @@ class FGRawMaterialSelector(Document):
                 cut_dim1 = f"{l1-4}"
             elif fg_code_part in ["ICT", "ICX"]:
                 cut_dim1 = f"{l1-8}"
-            if fg_code_part in ["SC", "LSC"]:
+            if fg_code_part in ["SC", "LSC","LSCK"]:
                 cut_dim1, cut_dim2 = f"{l1+10}" if l1 else "-", f"{l2+10}" if l2 else "-"
             elif fg_code_part == "SCE":
                 cut_dim1, cut_dim2 = f"{l1+b+10}", f"{l2+b+10}"
             elif fg_code_part == "SCY":
                 cut_dim1, cut_dim2 = f"{l1+10}", f"{l2+96+10}"
-            elif fg_code_part == "SCZ":
+            elif fg_code_part == "LSCY":
+                cut_dim1, cut_dim2 = f"{l1+10}", f"{l2+(b-4)+10}"
+            elif fg_code_part in ["SCZ","LSCZ"]:
                 cut_dim1, cut_dim2 = f"{(l1-4)+10}", f"{l2+10}"
-            elif fg_code_part == "LSCE":
+            elif fg_code_part in ["LSCE","LSCEK"]:
                 cut_dim1, cut_dim2 = f"{l1+b+10}", f"{l2+b+10}"
             cut_dim = f"{cut_dim1},{cut_dim2}" if is_corner else cut_dim1
 
@@ -502,34 +583,44 @@ class FGRawMaterialSelector(Document):
             cut_dim1, cut_dim2 = str(l1), str(l2) if l2 else "-"
             if fg_code_part in ["JLT", "JRT", "JLX", "JRX"]:
                 cut_dim1 = f"{l1-8}"
+            elif fg_code_part in ["LSX"]:
+                cut_dim1 = f"{l1}"
             elif fg_code_part in ["JL", "JLB", "JLT", "JLX", "JR", "JRB", "JRT", "JRX"]:
                 cut_dim1 = f"{l1-4}"
-            elif fg_code_part in ["SXC", "SXCE"]:
-                cut_dim1 = f"{l1+10}" if fg_code_part == "SXC" else f"{l1+b+10}"
-                cut_dim2 = f"{l2+10}" if fg_code_part == "SXC" else f"{l2+b+10}"
-            for (min_a, max_a), (rm1, rm2, remark) in j_sections.items():
-                if min_a <= a <= max_a:
-                    cut_dim = f"{cut_dim1},{cut_dim2}" if is_corner else cut_dim1
-                    if rm1 == "AL SHEET" and not is_corner:
-                        cut_dim = f"{a+65}X{l1}X4"
-                    elif rm1 == "AL SHEET" and is_corner:
-                        cut_dim = f"{a+65}X{l1}X4,{a+65}X{l2}X4"
-                    raw_materials.append({"code": rm1, "dimension": cut_dim, "remark": remark, "quantity": 1})
-                    frappe.log_error(message=f"J {'Corner' if is_corner else 'Straight'}: A={a} in range {min_a}-{max_a}, using RM1={rm1}, Cut={cut_dim}", title="J Section Logic")
-                    # Check for A in 25-50 and B = 100 to skip RM2
-                    if not (25 <= a <= 50 and b == 100):
-                        # Only add RM2 if A >= 51 or if A is outside 25-50
-                        for (min_b, max_b), (rm2, remark) in j_l_sections.items():
-                            if min_b <= b <= max_b:
-                                cut_dim = f"{cut_dim1},{cut_dim2}" if is_corner else cut_dim1
-                                raw_materials.append({"code": rm2, "dimension": cut_dim, "remark": remark, "quantity": 1})
-                                frappe.log_error(message=f"J {'Corner' if is_corner else 'Straight'}: B={b} in range {min_b}-{max_b}, using RM2={rm2}, Cut={cut_dim}", title="J Section Logic")
-                                break
-                    else:
-                        frappe.log_error(message=f"J {'Corner' if is_corner else 'Straight'}: A={a} in 25-50 and B={b} == 100, skipping RM2 as per logic", title="J Section Logic")
-                    break
+            elif fg_code_part in ["SXC", "SXCE", "SXCZ", "LSXC","LSXCK","LSXCE","LSXCEK"]:
+                cut_dim1 = f"{l1+10}" if fg_code_part in ["SXC","SXCZ","LSXCK"] else f"{l1+b+10}"
+                cut_dim2 = f"{l2+10}" if fg_code_part in ["SXC","SXCZ","LSXCK"] else f"{l2+b+10}"
+            elif fg_code_part in ["SXCY"]:
+                cut_dim1 = f"{l1+10}"
+                cut_dim2 = f"{l2+96+10}" if any(rm["code"] == "J SEC" for rm in raw_materials) else f"{l2+10}"
+            cut_dim = f"{cut_dim1},{cut_dim2}" if is_corner else cut_dim1
+            if (a <= 50 and b == 100) or (b <= 50 and a == 100):
+                raw_materials.append({"code": "J SEC", "dimension": cut_dim, "remark": "J SECTION", "quantity": 1})
+                frappe.log_error(message=f"J {'Corner' if is_corner else 'Straight'}: A={a}, B={b}, FG={fg_code_part}, Using J SEC due to A<=50 and B=100 or B<=50 and A=100, Cut={cut_dim}", title="J Section Logic")
+            else:
+                for (min_a, max_a), (rm1, rm2, remark) in j_sections.items():
+                    if min_a <= a <= max_a:
+                        cut_dim = f"{cut_dim1},{cut_dim2}" if is_corner else cut_dim1
+                        if rm1 == "AL SHEET" and not is_corner:
+                            cut_dim = f"{a+65}X{l1}X4"
+                        elif rm1 == "AL SHEET" and is_corner:
+                            cut_dim = f"{a+65}X{l1}X4,{a+65}X{l2}X4"
+                        raw_materials.append({"code": rm1, "dimension": cut_dim, "remark": remark, "quantity": 1})
+                        frappe.log_error(message=f"J {'Corner' if is_corner else 'Straight'}: A={a} in range {min_a}-{max_a}, using RM1={rm1}, Cut={cut_dim}", title="J Section Logic")
+                        # Check for A in 25-50 and B = 100 to skip RM2
+                        if not (25 <= a <= 50 and b == 100) or (25 <= b <= 50 and a == 100):
+                            # Only add RM2 if A >= 51 or if A is outside 25-50
+                            for (min_b, max_b), (rm2, remark) in j_l_sections.items():
+                                if min_b <= b <= max_b:
+                                    cut_dim = f"{cut_dim1},{cut_dim2}" if is_corner else cut_dim1
+                                    raw_materials.append({"code": rm2, "dimension": cut_dim, "remark": remark, "quantity": 1})
+                                    frappe.log_error(message=f"J {'Corner' if is_corner else 'Straight'}: B={b} in range {min_b}-{max_b}, using RM2={rm2}, Cut={cut_dim}", title="J Section Logic")
+                                    break
+                        else:
+                            frappe.log_error(message=f"J {'Corner' if is_corner else 'Straight'}: A={a} in 25-50 and B={b} == 100, skipping RM2 as per logic", title="J Section Logic")
+                        break
             # Child parts logic
-            if fg_code_part in ["SX", "SXC", "SXCE"]:
+            if fg_code_part in ["SX", "SXC", "SXCE", "LSX", "LSXC", "SXCZ", "SXCY", "LSXCK", "LSXCE", "LSXCEK"]:
                 side_rail_dim = f"{b-16}" if any(rm["code"] == "J SEC" for rm in raw_materials) else f"{b-12}"
                 stiff_qty = 5 if fg_code_part == "SX" else 2
                 child_parts.append({"code": "SIDE RAIL", "dimension": side_rail_dim, "remark": "CHILD PART", "quantity": 2})
@@ -624,7 +715,70 @@ class FGRawMaterialSelector(Document):
         frappe.log_error(message=f"Returning raw_materials for FG Code {fg_code}: {json.dumps(raw_materials, indent=2)}", title="FG Single Code Debug")
 
         return raw_materials
+@frappe.whitelist()
+def get_raw_materials(docname=None, planning_bom=None):
+    try:
+        frappe.log_error(
+            message=f"get_raw_materials called with docname: {docname}, planning_bom: {planning_bom}",
+            title="FG Get Raw Materials Debug"
+        )
+        if not docname:
+            frappe.throw(_("No FG Raw Material Selector document specified."))
+        if not planning_bom:
+            frappe.throw(_("No Planning BOMs provided."))
 
+        pbom_list = []
+        if isinstance(planning_bom, str):
+            try:
+                pbom_data = json.loads(planning_bom)
+                if isinstance(pbom_data, list):
+                    for entry in pbom_data:
+                        if isinstance(entry, dict):
+                            value = entry.get("planning_bom") or entry.get("value") or entry.get("name")
+                            if value:
+                                pbom_list.append(value)
+                        elif isinstance(entry, str):
+                            pbom_list.append(entry)
+                elif isinstance(pbom_data, str):
+                    pbom_list = [pbom_data]
+                elif isinstance(pbom_data, dict):
+                    value = pbom_data.get("planning_bom") or pbom_data.get("value") or pbom_data.get("name")
+                    if value:
+                        pbom_list.append(value)
+            except json.JSONDecodeError:
+                pbom_list = [planning_bom]
+        elif isinstance(planning_bom, list):
+            for pb in planning_bom:
+                if isinstance(pb, str):
+                    pbom_list.append(pb)
+
+        pbom_list = [p for p in pbom_list if p]
+        if not pbom_list:
+            frappe.throw(_("No valid Planning BOMs found."))
+
+        doc = frappe.get_doc("FG Raw Material Selector", docname)
+
+        existing = {row.planning_bom for row in doc.planning_bom}
+        for pb in pbom_list:
+            if pb not in existing:
+                doc.append("raw_materials", {"planning_bom": pb})
+
+        doc.save()
+
+        job_id = frappe.enqueue(
+            'sb.sb.doctype.fg_raw_material_selector.fg_raw_material_selector.process_fg_codes_background',
+            queue='long',
+            timeout=3600,
+            docname=doc.name
+        )
+
+        frappe.msgprint(
+            _("Raw material processing has been queued (Job ID: {0}).").format(job_id)
+        )
+        return []
+
+    except Exception as e:
+        frappe.throw(_("Failed to fetch raw materials: {0}").format(str(e)))
 @frappe.whitelist()
 def process_fg_codes_background(docname):
     try:
@@ -635,85 +789,6 @@ def process_fg_codes_background(docname):
     except Exception as e:
         frappe.log_error(message=f"Error in background job for {docname}: {str(e)}", title="FG Raw Material Error")
         raise
-
-@frappe.whitelist()
-def get_raw_materials(docname=None, project_design_upload=None):
-    try:
-        frappe.log_error(message=f"get_raw_materials called with docname: {docname}, project_design_upload: {project_design_upload}", title="FG Get Raw Materials Debug")
-        if not docname:
-            frappe.log_error(message="No FG Raw Material Selector document specified.", title="FG Raw Material Error")
-            frappe.throw(_("No FG Raw Material Selector document specified."))
-
-        if not project_design_upload:
-            frappe.log_error(message="No Project Design Uploads provided.", title="FG Raw Material Error")
-            frappe.throw(_("No Project Design Uploads provided."))
-
-        # Step 1: Parse the input list
-        pdu_list = []
-        if isinstance(project_design_upload, str):
-            try:
-                pdu_data = json.loads(project_design_upload)
-                if isinstance(pdu_data, list):
-                    for entry in pdu_data:
-                        if isinstance(entry, dict):
-                            value = entry.get("project_design_upload") or entry.get("value") or entry.get("name")
-                            if value:
-                                pdu_list.append(value)
-                        elif isinstance(entry, str):
-                            pdu_list.append(entry)
-                elif isinstance(pdu_data, str):
-                    pdu_list = [pdu_data]
-                elif isinstance(pdu_data, dict):
-                    value = pdu_data.get("project_design_upload") or pdu_data.get("value") or pdu_data.get("name")
-                    if value:
-                        pdu_list.append(value)
-                else:
-                    frappe.log_error(message=f"Invalid Project Design Upload format: {project_design_upload}", title="FG Raw Material Error")
-                    frappe.throw(_("Invalid Project Design Upload format."))
-            except json.JSONDecodeError:
-                pdu_list = [project_design_upload]
-        elif isinstance(project_design_upload, list):
-            for pdu in project_design_upload:
-                if isinstance(pdu, str):
-                    pdu_list.append(pdu)
-        else:
-            frappe.log_error(message=f"Invalid Project Design Upload format: {project_design_upload}", title="FG Raw Material Error")
-            frappe.throw(_("Invalid Project Design Upload format."))
-
-        pdu_list = [pdu for pdu in pdu_list if pdu]
-        if not pdu_list:
-            frappe.log_error(message="No valid Project Design Uploads found.", title="FG Raw Material Error")
-            frappe.throw(_("No valid Project Design Uploads found."))
-
-        # Step 2: Fetch the existing document
-        doc = frappe.get_doc("FG Raw Material Selector", docname)
-        frappe.log_error(message=f"Fetched FG Raw Material Selector: {docname}", title="FG Get Raw Materials Debug")
-
-        # Step 3: Update project_design_upload table
-        existing = {row.project_design_upload for row in doc.project_design_upload}
-        for pdu in pdu_list:
-            if pdu not in existing:
-                doc.append("project_design_upload", {"project_design_upload": pdu})
-        frappe.log_error(message=f"Updated project_design_upload: {json.dumps([row.project_design_upload for row in doc.project_design_upload], indent=2)}", title="FG Get Raw Materials Debug")
-
-        doc.save()
-        frappe.log_error(message=f"Saved FG Raw Material Selector: {docname}", title="FG Get Raw Materials Debug")
-
-        # Step 4: Enqueue background job
-        job_id = frappe.enqueue(
-            'sb.sb.doctype.fg_raw_material_selector.fg_raw_material_selector.process_fg_codes_background',
-            queue='long',
-            timeout=3600,
-            docname=doc.name
-        )
-        frappe.log_error(message=f"Enqueued job ID: {job_id} for docname: {docname}", title="FG Enqueue Debug")
-        frappe.msgprint(_("Raw material processing has been queued (Job ID: {0}).").format(job_id))
-
-        return []
-
-    except Exception as e:
-        frappe.log_error(message=f"Error in get_raw_materials: {str(e)}", title="FG Raw Material Error")
-        frappe.throw(_("Failed to fetch raw materials: {0}").format(str(e)))
 
 @frappe.whitelist()
 def create_bom_from_fg_selector(fg_selector_name, fg_code=None, project_design_upload=None):

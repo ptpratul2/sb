@@ -61,21 +61,21 @@ def execute(filters=None):
             fg_code = (item.get("fg_code") or "").upper()
             item_ipo_name = (item.get("ipo_name") or "").upper()
             item_project = item.get("project", "")
-            project_design_item_reference = item.get("project_design_item_reference") or ""
+            planning_bom_item_reference = item.get("planning_bom_item_reference") or ""
             l1, l2 = parse_dimension(item.get("dimension"))
             quantity = int(flt(item.get("quantity", 0)))
             a = item.get("a", 0)
             b = item.get("b", 0)
             sec_code = item.get("code", "")
             l1, l2 = parse_dimension(item.get("dimension"))
-            # l1 = item.get("l1", 0)
-            # l2 = item.get("l2", 0)
+            bom_l1 = item.get("l1", 0)
+            bom_l2 = item.get("l2", 0)
             bom_qty = item.get("bom_qty", 0)
             dwg_no = item.get("dwn_no", "")
             u_area = item.get("u_area", "")
             fg_code = fg_code or item.get("fg_code", "")
 
-            consolidation_key = project_design_item_reference or f"{fg_code}_{item_ipo_name}_{item_project}_{item_code}"
+            consolidation_key = planning_bom_item_reference or f"{fg_code}_{item_ipo_name}_{item_project}_{item_code}"
 
             if consolidation_key not in consolidated:
                 consolidated[consolidation_key] = {
@@ -86,8 +86,8 @@ def execute(filters=None):
                     "a": a,
                     "b": b,
                     "code": sec_code,
-                    "l1": l1,
-                    "l2": l2,
+                    "l1": bom_l1,
+                    "l2": bom_l2,
                     "dwg_no": dwg_no,
                     "fg_code": fg_code,
                     "total_quantity": bom_qty,
@@ -130,6 +130,10 @@ def execute(filters=None):
             part_fieldname = None
             if item_code in predefined_child_parts:
                 part_fieldname = predefined_child_parts[item_code]
+
+            ## Check if item section matches not with "Misc Section"
+            if part_fieldname == "rocker" and remark == "MISC SECTION":
+                part_fieldname = None
             elif remark == "CHILD PART":
                 for part_name, field_name in predefined_child_parts.items():
                     if part_name in item_code or item_code in part_name:

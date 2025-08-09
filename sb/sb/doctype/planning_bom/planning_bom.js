@@ -1,195 +1,194 @@
-// Copyright (c) 2025, ptpratul2@gmail.com and contributors
-// For license information, please see license.txt
+// Copyright (c) 2025
+// For license information, see license.txt
 
 frappe.ui.form.on("Planning BOM", {
     refresh(frm) {
         if (!frm.is_new()) {
-            // Add Consolidate button
-            frm.add_custom_button("Consolidate Items", function () {
-                if (!frm.doc.project_design_upload || frm.doc.project_design_upload.length === 0) {
-                    frappe.msgprint("Please select at least one Project Design Upload document");
+            // ----- Button Group: Actions -----
+            frm.add_custom_button("📦 Consolidate Items", () => {
+                if (!frm.doc.project_design_upload?.length) {
+                    frappe.msgprint("⚠️ Please select at least one Project Design Upload document");
                     return;
                 }
-                
                 frappe.confirm(
-                    "This will replace all existing items with consolidated data from selected Project Design Upload documents. Continue?",
-                    function() {
+                    __("This will <b>replace</b> all existing items with data from the selected Project Design Upload documents.<br><br>Do you want to continue?"),
+                    () => {
                         frappe.call({
                             method: "sb.sb.doctype.planning_bom.planning_bom.consolidate_project_design_uploads",
                             args: { docname: frm.doc.name },
+                            freeze: true,
+                            freeze_message: __("Processing..."),
                             callback(r) {
                                 if (!r.exc && r.message) {
-                                    frappe.msgprint(r.message.message);
+                                    frappe.msgprint({
+                                        title: __("✅ Consolidation Complete"),
+                                        message: r.message.message,
+                                        indicator: "green"
+                                    });
                                     frm.reload_doc();
                                 }
                             }
                         });
                     }
                 );
-            }, "Actions");
+            }, __("🔧 Actions")).addClass("btn-primary");
 
-            // Add Preview button
-            frm.add_custom_button("Preview Consolidation", function () {
-                if (!frm.doc.project_design_upload || frm.doc.project_design_upload.length === 0) {
-                    frappe.msgprint("Please select at least one Project Design Upload document");
+            frm.add_custom_button("👁 Preview Items", () => {
+                if (!frm.doc.project_design_upload?.length) {
+                    frappe.msgprint("⚠️ Please select at least one Project Design Upload document");
                     return;
                 }
-                
                 frappe.call({
                     method: "sb.sb.doctype.planning_bom.planning_bom.get_consolidation_preview",
                     args: { docname: frm.doc.name },
+                    freeze: true,
+                    freeze_message: __("Loading Preview..."),
                     callback(r) {
                         if (!r.exc && r.message) {
                             show_consolidation_preview(r.message);
                         }
                     }
                 });
-            }, "Actions");
+            }, __("🔧 Actions")).addClass("btn-info");
 
-            // Add Summary button
-            frm.add_custom_button("Show Summary", function () {
+            // ----- Button Group: View -----
+            frm.add_custom_button("📄 Show Summary", () => {
                 frappe.call({
                     method: "sb.sb.doctype.planning_bom.planning_bom.get_project_design_upload_summary",
                     args: { docname: frm.doc.name },
+                    freeze: true,
+                    freeze_message: __("Fetching Summary..."),
                     callback(r) {
                         if (!r.exc && r.message) {
                             show_design_upload_summary(r.message);
                         }
                     }
                 });
-            }, "View");
+            }, __("📊 View")).addClass("btn-secondary");
         }
     },
 
     project_design_upload_on_form_rendered(frm) {
-        // Auto-refresh summary when project design uploads are changed
-        if (frm.doc.project_design_upload && frm.doc.project_design_upload.length > 0) {
+        if (frm.doc.project_design_upload?.length) {
             update_summary_section(frm);
         }
     }
 });
 
-// Show consolidation preview in a dialog
+// ------------------ UI Helper Functions ------------------
+
+// Consolidation Preview
 function show_consolidation_preview(data) {
     let preview_html = `
         <div class="consolidation-preview">
-            <h4>Consolidation Preview</h4>
-            <p><strong>Total Unique Items:</strong> ${data.total_unique_items}</p>
-            <p><strong>Total Quantity:</strong> ${data.total_quantity}</p>
-            <table class="table table-bordered">
-                <thead>
+            <h4 class="mb-3">📦 Consolidation Preview</h4>
+            <p>
+                <span class="badge badge-primary">Total Items: ${data.preview.length}</span>
+                <span class="badge badge-success">Total Quantity: ${data.total_quantity}</span>
+                <span class="badge badge-info">Total Unit Area: ${data.total_unit_area}</span>
+            </p>
+            <table class="table table-sm table-hover">
+                <thead class="thead-dark">
                     <tr>
                         <th>FG Code</th>
                         <th>Item Code</th>
                         <th>Dimension</th>
-                        <th>Quantity</th>
+                        <th class="text-right">Quantity</th>
                         <th>Sources</th>
-                        <th>Remark</th>
                     </tr>
                 </thead>
                 <tbody>
     `;
-    
     data.preview.forEach(item => {
         preview_html += `
             <tr>
-                <td>${item.fg_code || ''}</td>
-                <td>${item.item_code || ''}</td>
-                <td>${item.dimension || ''}</td>
-                <td>${item.quantity}</td>
-                <td>${item.source_count} document(s)</td>
-                <td>${item.remark || ''}</td>
+                <td>${frappe.utils.escape_html(item.fg_code || '')}</td>
+                <td>${frappe.utils.escape_html(item.item_code || '')}</td>
+                <td>${frappe.utils.escape_html(item.dimension || '')}</td>
+                <td class="text-right"><b>${item.quantity}</b></td>
+                <td><span class="badge badge-info">${item.source_count} doc(s)</span></td>
             </tr>
         `;
     });
-    
-    preview_html += `
-                </tbody>
-            </table>
-        </div>
-    `;
-    
+    preview_html += `</tbody></table></div>`;
+
     frappe.msgprint({
-        title: "Consolidation Preview",
+        title: "📝 Consolidation Preview",
         message: preview_html,
         wide: true
     });
 }
 
-// Show design upload summary
+// Summary of PDUs
 function show_design_upload_summary(data) {
     let summary_html = `
         <div class="design-upload-summary">
-            <h4>Selected Project Design Upload Summary</h4>
-            <p><strong>Total Documents:</strong> ${data.total_documents}</p>
-            <p><strong>Total Items:</strong> ${data.total_items}</p>
-            <table class="table table-bordered">
-                <thead>
+            <h4 class="mb-3">📄 Selected Project Design Upload Summary</h4>
+            <p>
+                <span class="badge badge-primary">Documents: ${data.total_documents}</span>
+                <span class="badge badge-success">Total Items: ${data.total_items}</span>
+            </p>
+            <table class="table table-sm table-hover">
+                <thead class="thead-dark">
                     <tr>
                         <th>Document Name</th>
                         <th>Project</th>
                         <th>Upload Date</th>
-                        <th>Item Count</th>
+                        <th class="text-right">Item Count</th>
                         <th>Status</th>
                     </tr>
                 </thead>
                 <tbody>
     `;
-    
     data.summary.forEach(doc => {
         summary_html += `
             <tr>
                 <td><a href="/app/project-design-upload/${doc.name}" target="_blank">${doc.name}</a></td>
                 <td>${doc.project || ''}</td>
                 <td>${doc.upload_date || ''}</td>
-                <td>${doc.item_count}</td>
-                <td><span class="indicator ${doc.processed_status === 'Completed' ? 'green' : 'orange'}">${doc.processed_status || 'Pending'}</span></td>
+                <td class="text-right"><b>${doc.item_count}</b></td>
+                <td><span class="indicator ${doc.processed_status === 'Completed' ? 'green' : 'orange'}">
+                    ${doc.processed_status || 'Pending'}
+                </span></td>
             </tr>
         `;
     });
-    
-    summary_html += `
-                </tbody>
-            </table>
-        </div>
-    `;
-    
+    summary_html += `</tbody></table></div>`;
+
     frappe.msgprint({
-        title: "Project Design Upload Summary",
+        title: "📊 Project Design Upload Summary",
         message: summary_html,
         wide: true
     });
 }
 
-// Update summary section in the form
+// Update Summary Dashboard Indicators
 function update_summary_section(frm) {
     frappe.call({
         method: "sb.sb.doctype.planning_bom.planning_bom.get_project_design_upload_summary",
         args: { docname: frm.doc.name },
         callback(r) {
             if (!r.exc && r.message) {
-                // You can add a custom HTML field to show this summary in the form
-                // or display it as an indicator
+                frm.dashboard.clear_headline();
                 frm.dashboard.add_indicator(
-                    __("Selected Documents: {0}", [r.message.total_documents]),
+                    `📄 Selected Documents: ${r.message.total_documents}`,
                     "blue"
                 );
                 frm.dashboard.add_indicator(
-                    __("Total Items: {0}", [r.message.total_items]),
+                    `📦 Total Items: ${r.message.total_items}`,
                     "green"
                 );
+                frm.dashboard.show();
             }
         }
     });
 }
 
-// Handle changes in project design upload multiselect
 frappe.ui.form.on("BOM Multiselect", {
-    project_design_upload_add(frm, cdt, cdn) {
+    project_design_upload_add(frm) {
         update_summary_section(frm);
     },
-    
-    project_design_upload_remove(frm, cdt, cdn) {
+    project_design_upload_remove(frm) {
         update_summary_section(frm);
     }
 });

@@ -6,7 +6,7 @@
  "doctype": "DocType",
  "engine": "InnoDB",
  "field_order": [
-  "project_design_upload",
+  "planning_bom",
   "column_break_tlve",
   "project",
   "section_break_tadf",
@@ -32,12 +32,6 @@
    "fieldtype": "Section Break"
   },
   {
-   "fieldname": "project_design_upload",
-   "fieldtype": "Table MultiSelect",
-   "label": "Project Design Upload",
-   "options": "BOM Multiselect"
-  },
-  {
    "fieldname": "column_break_tlve",
    "fieldtype": "Column Break"
   },
@@ -50,12 +44,18 @@
    "fieldname": "raw_materials_item",
    "fieldtype": "HTML",
    "label": "Raw Materials Item"
+  },
+  {
+   "fieldname": "planning_bom",
+   "fieldtype": "Table MultiSelect",
+   "label": "Planning BOM",
+   "options": "Planning BOM Multiselect"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-06-22 15:29:16.603489",
+ "modified": "2025-08-09 23:35:44.163871",
  "modified_by": "Administrator",
  "module": "Sb",
  "name": "FG Raw Material Selector",
