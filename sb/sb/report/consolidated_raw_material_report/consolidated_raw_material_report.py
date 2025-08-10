@@ -209,6 +209,22 @@ def execute(filters=None):
             {"label": "Stiffner U L2", "fieldname": "stiffner_u_l2", "fieldtype": "Data"},
             {"label": "Stiffner U Qty", "fieldname": "stiffner_u_qty", "fieldtype": "Float"},
         ]
+        
+        # Remove columns with no data across all rows
+        always_keep = {"fg_code", "project", "ipo_name", "section", "a", "b", "code", "l1", "l2", "dwg_no", "total_quantity", "u_area", "total_area"}
+        columns_to_keep = []
+        for col in columns:
+            field = col["fieldname"]
+            if field in always_keep:
+                columns_to_keep.append(col)
+                continue
+            has_value = any(row.get(field) not in [None, "", 0, 0.0] for row in data)
+            if has_value:
+                columns_to_keep.append(col)
+            else:
+                for row in data:
+                    row.pop(field, None)
+        columns = columns_to_keep
 
         return columns, data
 

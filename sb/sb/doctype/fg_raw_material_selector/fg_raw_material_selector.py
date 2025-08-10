@@ -8,6 +8,8 @@ from frappe.model.document import Document
 import json
 from frappe.utils.background_jobs import enqueue
 from frappe.utils import flt
+import math
+from collections import defaultdict
 
 class FGRawMaterialSelector(Document):
     def validate(self):
@@ -303,7 +305,7 @@ class FGRawMaterialSelector(Document):
         ch_sections = {
             50: "50 CH", 75: "75 CH", 100: "100 CH", 125: "125 CH",
             150: "150 CH", 175: "175 CH", 200: "200 CH", 250: "250 CH",
-            300: "300 CH"
+            300: "300 CH", 350: "350 CH", 400: "400 CH", 600: "600 CH"
         }
 
         # IC section mappings for exact matches
@@ -446,6 +448,11 @@ class FGRawMaterialSelector(Document):
                 else:
                     cut_dim1, cut_dim2 = str(l1), str(l2) if l2 else "-"
             if a <= 300 and a % 25 == 0 and a in ch_sections:
+                rm_code = ch_sections[a]
+                cut_dim = f"{cut_dim1},{cut_dim2}" if is_corner else cut_dim1
+                raw_materials.append({"code": rm_code, "dimension": cut_dim, "remark": "CH SECTION", "quantity": 1})
+                frappe.log_error(message=f"CH {'Corner' if is_corner else 'Straight'}: A={a} is multiple of 25, using RM1={rm_code}, Cut={cut_dim}", title="CH Section Logic")
+            elif (a==350 or a==400 or a==600) in ch_sections:
                 rm_code = ch_sections[a]
                 cut_dim = f"{cut_dim1},{cut_dim2}" if is_corner else cut_dim1
                 raw_materials.append({"code": rm_code, "dimension": cut_dim, "remark": "CH SECTION", "quantity": 1})
@@ -814,7 +821,7 @@ def create_bom_from_fg_selector(fg_selector_name, fg_code=None, project_design_u
         frappe.log_error(message=f"Error creating BOM: {str(e)}", title="FG Raw Material Error")
         frappe.throw(f"Failed to create BOM: {str(e)}")
 
-from frappe.utils import flt
+
 
 @frappe.whitelist()
 def reserve_stock(fg_selector_name):
@@ -822,39 +829,65 @@ def reserve_stock(fg_selector_name):
         frappe.log_error(message=f"Reserving stock for FG Selector: {fg_selector_name}", title="FG Stock Debug")
         warehouses_to_check = ["Off-Cut - VD", "Raw Material - VD"]
         doc = frappe.get_doc("FG Raw Material Selector", fg_selector_name)
-        stock_map = {}
-        reserved_warehouse = {}
 
+        # Group rows by item_code
+        groups = defaultdict(list)
         for row in doc.raw_materials:
-            item_code = row.item_code
-            uom = row.uom
-            if item_code in stock_map:
-                continue
+            groups[row.item_code].append(row)
+
+        for item_code, group_rows in groups.items():
+            total_length = 0.0
+            total_piece_qty = 0.0
+            uom = group_rows[0].uom if group_rows[0].uom else "Nos"
+
+            # Consolidated length sum for the same item_code
+            for row in group_rows:
+                dims = []
+                # If dimension is a comma-separated string
+                if row.dimension:
+                    dims += [flt(v.strip()) for v in row.dimension.split(',') if v.strip()]
+                # Multiply length sum by row quantity
+                if dims:
+                    total_length += sum(dims) * flt(row.quantity)
+                else:
+                    total_piece_qty += flt(row.quantity)
+
+            # Decide required qty based on length or pieces
+            if total_length > 0:
+                required = math.ceil(total_length / 4820)
+                is_length_based = True
+            else:
+                required = math.ceil(total_piece_qty)
+                is_length_based = False
+
+            # Find warehouse with enough stock
+            selected_wh = ""
+            available = 0
             for wh in warehouses_to_check:
                 qty = get_actual_qty(item_code, wh, uom)
-                if qty > 0:
-                    stock_map[item_code] = qty
-                    reserved_warehouse[item_code] = wh
+                if qty >= required:
+                    selected_wh = wh
+                    available = qty
                     break
-            else:
-                stock_map[item_code] = 0
-                reserved_warehouse[item_code] = ""
+            if not selected_wh:
+                available = sum(get_actual_qty(item_code, wh, uom) for wh in warehouses_to_check)
 
-        for row in doc.raw_materials:
-            item_code = row.item_code
-            required_qty = flt(row.quantity)
-            available_qty = flt(stock_map.get(item_code, 0))
-            reserved_wh = reserved_warehouse.get(item_code, "")
-            row.db_set("available_quantity", available_qty)
-            if available_qty >= required_qty:
-                stock_map[item_code] -= required_qty
-                row.db_set("status", "IS")
-                row.db_set("reserve_tag", 1)
-                row.db_set("warehouse", reserved_wh)
+            if selected_wh:
+                status = "IS"
+                reserve_tag = 1
+                warehouse = selected_wh
             else:
-                row.db_set("status", "NIS")
-                row.db_set("reserve_tag", 0)
-                row.db_set("warehouse", "")
+                status = "NIS"
+                reserve_tag = 0
+                warehouse = ""
+
+            # Update all rows for this item_code
+            for row in group_rows:
+                row.db_set("status", status)
+                row.db_set("reserve_tag", reserve_tag)
+                row.db_set("warehouse", warehouse)
+                row.db_set("available_quantity", available)
+
         frappe.log_error(message="Stock reservation completed.", title="FG Stock Debug")
         return {
             "status": "success",
@@ -873,6 +906,57 @@ def reserve_stock(fg_selector_name):
     except Exception as e:
         frappe.log_error(message=f"Error reserving stock: {str(e)}", title="FG Raw Material Error")
         raise
+
+
+@frappe.whitelist()
+def create_stock_entry_client(items, project=None):
+    if isinstance(items, str):
+        items = json.loads(items)
+
+    if not items:
+        frappe.throw("No items provided for Stock Entry")
+
+    se = frappe.new_doc("Stock Entry")
+    se.stock_entry_type = "Material Transfer"
+    se.from_warehouse = "Raw Material - VD"
+    se.to_warehouse = "Reserved Stock - VD"
+    se.company = "Vidhi (Demo)"
+    se.purpose = "Material Transfer"
+    se.project = project
+
+    # Default warehouses
+    source_wh_default = "Raw Material - VD"
+    target_wh_default = "Reserved Stock - VD"
+
+    for idx, item in enumerate(items, start=1):
+        source_wh = (item.get("s_warehouse") or source_wh_default).strip()
+        target_wh = (item.get("t_warehouse") or target_wh_default).strip()
+
+        if not frappe.db.exists("Warehouse", source_wh):
+            frappe.throw(f"Invalid Source Warehouse '{source_wh}' for row {idx}")
+        if not frappe.db.exists("Warehouse", target_wh):
+            frappe.throw(f"Invalid Target Warehouse '{target_wh}' for row {idx}")
+
+        se.append("items", {
+            "item_code": item.get("item_code"),
+            "qty": flt(item.get("qty")),
+            "uom": item.get("uom") or "Nos",
+            "stock_uom": item.get("uom") or "Nos",
+            "s_warehouse": source_wh,
+            "t_warehouse": target_wh,
+            "basic_rate": flt(item.get("basic_rate")),
+            "valuation_rate": flt(item.get("valuation_rate")),
+            "allow_zero_valuation_rate": 0,
+            "cost_center": "Main - VD",
+            "project": project
+        })
+
+    frappe.logger().info(f"Final Stock Entry: {se.as_dict()}")
+    se.insert(ignore_permissions=True)
+    frappe.db.commit()
+
+    return se.name
+
 
 def get_actual_qty(item_code, warehouse, uom):
     try:
