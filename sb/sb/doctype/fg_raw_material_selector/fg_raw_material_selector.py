@@ -324,14 +324,14 @@ class FGRawMaterialSelector(Document):
 
         # L-section mappings for IC straight and corner
         ic_l_sections = {
-            (50, 125): ("130 L", "130 L", "CH SECTION"),
-            (126, 150): ("155 L", "155 L", "CH SECTION"),
-            (151, 175): ("180 L", "180 L", "CH SECTION"),
-            (176, 200): ("205 L", "205 L", "CH SECTION"),
-            (201, 225): ("230 L", "230 L", "CH SECTION"),
-            (226, 250): ("255 L", "255 L", "CH SECTION"),
-            (251, 275): ("280 L", "280 L", "CH SECTION"),
-            (276, 300): ("305 L", "305 L", "CH SECTION"),
+            (50, 125): ("130 L", "130 L", "L SECTION"),
+            (126, 150): ("155 L", "155 L", "L SECTION"),
+            (151, 175): ("180 L", "180 L", "L SECTION"),
+            (176, 200): ("205 L", "205 L", "L SECTION"),
+            (201, 225): ("230 L", "230 L", "L SECTION"),
+            (226, 250): ("255 L", "255 L", "L SECTION"),
+            (251, 275): ("280 L", "280 L", "L SECTION"),
+            (276, 300): ("305 L", "305 L", "L SECTION"),
             (301, 600): ("AL SHEET", "130 L", "IC SECTION"),
             (301, 600): ("AL SHEET", "155 L", "IC SECTION")
         }
