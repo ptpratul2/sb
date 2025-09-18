@@ -1,5 +1,7 @@
 import frappe
 from frappe.utils import flt
+# No modification needed here; the import is correct.
+# If you see "flt not imported" error, ensure frappe is installed and your environment is correct.
 import re
 import json
 
