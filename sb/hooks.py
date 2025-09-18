@@ -150,6 +150,20 @@ doctype_js = {"Work Order" : "public/js/workorder.js"}
 # 	}
 # }
 
+doc_events = {
+    "Stock Entry": {
+        "on_submit": "sb.sb.stock_hooks.update_length_in_sle",
+        "on_cancel": "sb.sb.stock_hooks.clear_length_in_sle"
+
+    },
+    "Purchase Receipt": {
+        "on_submit": "sb.sb.stock_hooks.update_length_in_sle",
+        "on_cancel": "sb.sb.stock_hooks.clear_length_in_sle"
+
+    }
+}
+
+
 # Scheduled Tasks
 # ---------------
 
