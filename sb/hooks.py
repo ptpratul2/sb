@@ -52,6 +52,10 @@ app_version = "1.1.0"
 # doctype_calendar_js = {"doctype" : "public/js/doctype_calendar.js"}
 
 doctype_js = {"Work Order" : "public/js/workorder.js"}
+doctype_js = {"Material Request" : "public/js/material_request_length.js"}
+doctype_js = {"Stock Entry" : "public/js/stock_entry_length.js"}
+doctype_js = {"Purchase Receipt" : "public/js/purchase_receipt_length.js"}
+doctype_js = {"Purchase Order" : "public/js/purchase_order_length.js"}
 
 # Svg Icons
 # ------------------

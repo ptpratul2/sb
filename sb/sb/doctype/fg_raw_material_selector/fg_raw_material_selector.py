@@ -819,55 +819,425 @@ def create_bom_from_fg_selector(fg_selector_name, fg_code=None, project_design_u
         frappe.throw(f"Failed to create BOM: {str(e)}")
 
 
+
 @frappe.whitelist()
-def create_stock_entry_client(items, project=None):
-    if isinstance(items, str):
-        items = json.loads(items)
+def create_stock_entry_client(items, project=None, fg_selector_name=None):
+    try:
+        if isinstance(items, str):
+            items = json.loads(items)
+        if not items:
+            frappe.throw("No items provided for Stock Entry")
 
-    if not items:
-        frappe.throw("No items provided for Stock Entry")
+        se = frappe.new_doc("Stock Entry")
+        se.stock_entry_type = "Material Transfer"
+        se.from_warehouse = "Raw Material - VD"
+        se.to_warehouse = "Reserved Stock - VD"
+        se.company = "Vidhi (Demo)"
+        se.purpose = "Material Transfer"
+        se.project = project
 
-    se = frappe.new_doc("Stock Entry")
-    se.stock_entry_type = "Material Transfer"
-    se.from_warehouse = "Raw Material - VD"
-    se.to_warehouse = "Reserved Stock - VD"
-    se.company = "Vidhi (Demo)"
-    se.purpose = "Material Transfer"
-    se.project = project
+        # Default warehouses
+        source_wh_default = "Raw Material - VD"
+        target_wh_default = "Reserved Stock - VD"
+        offcut_wh = "Off-Cut - VD"
 
-    # Default warehouses
-    source_wh_default = "Raw Material - VD"
-    target_wh_default = "Reserved Stock - VD"
+        # If fg_selector_name is provided, fetch dimensions from FG Raw Material Selector
+        fg_doc = None
+        if fg_selector_name:
+            try:
+                fg_doc = frappe.get_doc("FG Raw Material Selector", fg_selector_name)
+            except frappe.DoesNotExistError:
+                frappe.log_error(
+                    message=f"FG Raw Material Selector {fg_selector_name} not found",
+                    title="FG Stock Entry Error"
+                )
 
-    for idx, item in enumerate(items, start=1):
-        source_wh = (item.get("s_warehouse") or source_wh_default).strip()
-        target_wh = (item.get("t_warehouse") or target_wh_default).strip()
+        for idx, item in enumerate(items, start=1):
+            item_code = item.get("item_code")
+            qty = flt(item.get("qty"))
+            uom = item.get("uom") or "Nos"
+            source_wh = (item.get("s_warehouse") or source_wh_default).strip()
+            target_wh = (item.get("t_warehouse") or target_wh_default).strip()
+            dimension = item.get("dimension")
+            item_fg_selector_name = item.get("fg_selector_name") or fg_selector_name
 
-        if not frappe.db.exists("Warehouse", source_wh):
-            frappe.throw(f"Invalid Source Warehouse '{source_wh}' for row {idx}")
-        if not frappe.db.exists("Warehouse", target_wh):
-            frappe.throw(f"Invalid Target Warehouse '{target_wh}' for row {idx}")
+            if not frappe.db.exists("Warehouse", source_wh):
+                frappe.throw(f"Invalid Source Warehouse '{source_wh}' for row {idx}")
+            if not frappe.db.exists("Warehouse", target_wh):
+                frappe.throw(f"Invalid Target Warehouse '{target_wh}' for row {idx}")
 
-        se.append("items", {
-            "item_code": item.get("item_code"),
-            "qty": flt(item.get("qty")),
-            "uom": item.get("uom") or "Nos",
-            "stock_uom": item.get("uom") or "Nos",
-            "s_warehouse": source_wh,
-            "t_warehouse": target_wh,
-            "basic_rate": flt(item.get("basic_rate")),
-            "valuation_rate": flt(item.get("valuation_rate")),
-            "allow_zero_valuation_rate": 0,
-            "cost_center": "Main - VD",
-            "project": project
-        })
+            # Check if item is serialized and length-based
+            has_serial_no = frappe.db.get_value("Item", item_code, "has_serial_no")
+            is_length_based = bool(dimension) or (fg_doc and any(row.item_code == item_code and row.dimension for row in fg_doc.raw_materials))
 
-    frappe.logger().info(f"Final Stock Entry: {se.as_dict()}")
-    se.insert(ignore_permissions=True)
-    frappe.db.commit()
+            if is_length_based and has_serial_no:
+                # Parse dimensions from item or FG Raw Material Selector
+                dims = []
+                if dimension:
+                    dims = [flt(v.strip()) for v in dimension.split(',') if v.strip()]
+                elif fg_doc:
+                    for row in fg_doc.raw_materials:
+                        if row.item_code == item_code and row.dimension:
+                            dims.extend([flt(v.strip()) for v in row.dimension.split(',') if v.strip()])
+                if not dims:
+                    frappe.log_error(
+                        message=f"No valid dimensions found for {item_code} in item or FG Selector {item_fg_selector_name}",
+                        title="FG Stock Entry Error"
+                    )
+                    is_length_based = False  # Fall back to non-length-based logic
 
-    return se.name
+                if is_length_based:
+                    required_cuts = []
+                    for _ in range(int(qty)):
+                        required_cuts.extend(dims)
 
+                    # Get available lengths from Serial No
+                    offcut_lengths = frappe.db.get_list(
+                        "Serial No",
+                        filters={"item_code": item_code, "warehouse": offcut_wh},
+                        fields=["serial_no", "custom_length"],
+                        as_list=False
+                    )
+                    fresh_lengths = frappe.db.get_list(
+                        "Serial No",
+                        filters={"item_code": item_code, "warehouse": source_wh_default},
+                        fields=["serial_no", "custom_length"],
+                        as_list=False
+                    )
+
+                    # Create bins for cutting simulation
+                    bins = []
+                    for serial in offcut_lengths:
+                        if serial.custom_length:
+                            bins.append({
+                                "serial_no": serial.serial_no,
+                                "capacity": flt(serial.custom_length),
+                                "remaining": flt(serial.custom_length),
+                                "type": "offcut",
+                                "warehouse": offcut_wh
+                            })
+                    for serial in fresh_lengths:
+                        if serial.custom_length:
+                            bins.append({
+                                "serial_no": serial.serial_no,
+                                "capacity": flt(serial.custom_length),
+                                "remaining": flt(serial.custom_length),
+                                "type": "fresh",
+                                "warehouse": source_wh_default
+                            })
+
+                    if not bins:
+                        frappe.log_error(
+                            message=f"No Serial No with custom_length found for {item_code} in {offcut_wh} or {source_wh_default}",
+                            title="FG Stock Entry Error"
+                        )
+                        is_length_based = False
+
+                    if is_length_based:
+                        # Sort cuts in descending order (to optimize cutting)
+                        sorted_cuts = sorted(required_cuts, reverse=True)
+                        used_serials = []
+                        offcuts_to_create = []
+
+                        # Rule 0: Offcut First
+                        for p in sorted_cuts:
+                            p_with_tolerance = p + 5  # Include 5mm cutting tolerance
+                            assigned = False
+                            # Prioritize offcuts
+                            for b in sorted([b for b in bins if b["type"] == "offcut"], key=lambda x: x["remaining"]):
+                                usable_capacity = math.floor((b["remaining"] - 5) / (p + 5))
+                                if usable_capacity >= 1:
+                                    b["remaining"] -= p_with_tolerance
+                                    used_serials.append({
+                                        "serial_no": b["serial_no"],
+                                        "length": p,
+                                        "warehouse": b["warehouse"]
+                                    })
+                                    assigned = True
+                                    if b["remaining"] >= 200:
+                                        offcuts_to_create.append({
+                                            "item_code": item_code,
+                                            "remaining_length": b["remaining"],
+                                            "rate": flt(item.get("basic_rate", 0)),
+                                            "fg_selector_name": item_fg_selector_name
+                                        })
+                                    elif b["remaining"] > 0:
+                                        frappe.log_error(
+                                            message=f"Scrap remainder {b['remaining']} mm for serial {b['serial_no']} of {item_code}",
+                                            title="FG Stock Debug"
+                                        )
+                                    break
+                            if not assigned:
+                                # Try fresh material
+                                for b in sorted([b for b in bins if b["type"] == "fresh"], key=lambda x: x["remaining"]):
+                                    usable_capacity = math.floor((b["remaining"] - 5) / (p + 5))
+                                    if usable_capacity >= 1:
+                                        b["remaining"] -= p_with_tolerance
+                                        used_serials.append({
+                                            "serial_no": b["serial_no"],
+                                            "length": p,
+                                            "warehouse": b["warehouse"]
+                                        })
+                                        assigned = True
+                                        if b["remaining"] >= 200:
+                                            offcuts_to_create.append({
+                                                "item_code": item_code,
+                                                "remaining_length": b["remaining"],
+                                                "rate": flt(item.get("basic_rate", 0)),
+                                                "fg_selector_name": item_fg_selector_name
+                                            })
+                                        elif b["remaining"] > 0:
+                                            frappe.log_error(
+                                                message=f"Scrap remainder {b['remaining']} mm for serial {b['serial_no']} of {item_code}",
+                                                title="FG Stock Debug"
+                                            )
+                                        break
+                            if not assigned:
+                                frappe.log_error(
+                                    message=f"Insufficient stock for cut {p} mm of {item_code}",
+                                    title="FG Stock Debug"
+                                )
+                                continue
+
+                        # Calculate residual demand
+                        remaining_cuts = [p for p in sorted_cuts if not any(u["length"] == p for u in used_serials)]
+                        d_rem = sum(p + 5 for p in remaining_cuts) if remaining_cuts else 0
+
+                        # Rules 1–4 for residual demand
+                        if d_rem > 0:
+                            section_lengths = [(2410, "2410"), (2420, "2420"), (4820, "4820"), (4850, "4850")]
+                            best_plan = None
+                            min_remainder = float('inf')
+                            min_sections = float('inf')
+                            selected_length = None
+
+                            if d_rem <= 2405:  # Rule 1
+                                for L, name in [(2410, "2410"), (2420, "2420")]:
+                                    if frappe.db.exists("Serial No", {"item_code": item_code, "warehouse": source_wh_default, "custom_length": L}):
+                                        remainder = L - d_rem
+                                        if remainder < min_remainder or (remainder == min_remainder and L < selected_length):
+                                            min_remainder = remainder
+                                            selected_length = L
+                                            best_plan = {"length": L, "count": 1, "remainder": remainder}
+                                if best_plan:
+                                    serial_no = frappe.db.get_value(
+                                        "Serial No",
+                                        {"item_code": item_code, "warehouse": source_wh_default, "custom_length": selected_length},
+                                        "name"
+                                    )
+                                    used_serials.append({
+                                        "serial_no": serial_no,
+                                        "length": d_rem,
+                                        "warehouse": source_wh_default
+                                    })
+                                    if min_remainder >= 200:
+                                        offcuts_to_create.append({
+                                            "item_code": item_code,
+                                            "remaining_length": min_remainder,
+                                            "rate": flt(item.get("basic_rate", 0)),
+                                            "fg_selector_name": item_fg_selector_name
+                                        })
+
+                            elif 2405 < d_rem <= 4815:  # Rule 2
+                                r_4820 = 4815 - d_rem
+                                q_2410 = math.ceil(d_rem / 2405)
+                                r_2410 = q_2410 * 2405 - d_rem
+                                if r_4820 <= r_2410:
+                                    if frappe.db.exists("Serial No", {"item_code": item_code, "warehouse": source_wh_default, "custom_length": ["in", [4820, 4850]]}):
+                                        L = 4820 if frappe.db.exists("Serial No", {"item_code": item_code, "warehouse": source_wh_default, "custom_length": 4820}) else 4850
+                                        best_plan = {"length": L, "count": 1, "remainder": r_4820}
+                                else:
+                                    if frappe.db.exists("Serial No", {"item_code": item_code, "warehouse": source_wh_default, "custom_length": ["in", [2410, 2420]]}):
+                                        L = 2410 if frappe.db.exists("Serial No", {"item_code": item_code, "warehouse": source_wh_default, "custom_length": 2410}) else 2420
+                                        best_plan = {"length": L, "count": q_2410, "remainder": r_2410}
+                                if best_plan:
+                                    for _ in range(best_plan["count"]):
+                                        serial_no = frappe.db.get_value(
+                                            "Serial No",
+                                            {"item_code": item_code, "warehouse": source_wh_default, "custom_length": best_plan["length"]},
+                                            "name"
+                                        )
+                                        used_serials.append({
+                                            "serial_no": serial_no,
+                                            "length": d_rem / best_plan["count"],
+                                            "warehouse": source_wh_default
+                                        })
+                                    if best_plan["remainder"] >= 200:
+                                        offcuts_to_create.append({
+                                            "item_code": item_code,
+                                            "remaining_length": best_plan["remainder"],
+                                            "rate": flt(item.get("basic_rate", 0)),
+                                            "fg_selector_name": item_fg_selector_name
+                                        })
+
+                            else:  # Rule 4
+                                q_2410 = math.ceil(d_rem / 2405)
+                                r_2410 = q_2410 * 2405 - d_rem
+                                plans = [{"length": 2410, "count": q_2410, "remainder": r_2410, "total_sections": q_2410}]
+                                k_4820 = math.ceil(d_rem / 4815)
+                                r_4820 = k_4820 * 4815 - d_rem
+                                plans.append({"length": 4820, "count": k_4820, "remainder": r_4820, "total_sections": k_4820})
+                                for k in range(1, k_4820 + 1):
+                                    remaining_d = d_rem - k * 4815
+                                    if remaining_d <= 0:
+                                        plans.append({"length": 4820, "count": k, "remainder": -remaining_d, "total_sections": k})
+                                    else:
+                                        m = math.ceil(remaining_d / 2405)
+                                        r_mix = k * 4815 + m * 2405 - d_rem
+                                        plans.append({"length": "mix", "count_4820": k, "count_2410": m, "remainder": r_mix, "total_sections": k + m})
+
+                                for plan in plans:
+                                    if plan["remainder"] < min_remainder or (plan["remainder"] == min_remainder and plan["total_sections"] < min_sections):
+                                        min_remainder = plan["remainder"]
+                                        min_sections = plan["total_sections"]
+                                        best_plan = plan
+
+                                if best_plan:
+                                    if best_plan.get("length") == "mix":
+                                        for _ in range(best_plan["count_4820"]):
+                                            L = 4820 if frappe.db.exists("Serial No", {"item_code": item_code, "warehouse": source_wh_default, "custom_length": 4820}) else 4850
+                                            serial_no = frappe.db.get_value(
+                                                "Serial No",
+                                                {"item_code": item_code, "warehouse": source_wh_default, "custom_length": L},
+                                                "name"
+                                            )
+                                            used_serials.append({
+                                                "serial_no": serial_no,
+                                                "length": 4815 / best_plan["count_4820"],
+                                                "warehouse": source_wh_default
+                                            })
+                                        for _ in range(best_plan["count_2410"]):
+                                            L = 2410 if frappe.db.exists("Serial No", {"item_code": item_code, "warehouse": source_wh_default, "custom_length": 2410}) else 2420
+                                            serial_no = frappe.db.get_value(
+                                                "Serial No",
+                                                {"item_code": item_code, "warehouse": source_wh_default, "custom_length": L},
+                                                "name"
+                                            )
+                                            used_serials.append({
+                                                "serial_no": serial_no,
+                                                "length": (d_rem - best_plan["count_4820"] * 4815) / best_plan["count_2410"],
+                                                "warehouse": source_wh_default
+                                            })
+                                    else:
+                                        L = best_plan["length"]
+                                        if L == 2410 and not frappe.db.exists("Serial No", {"item_code": item_code, "warehouse": source_wh_default, "custom_length": 2410}):
+                                            L = 2420
+                                        elif L == 4820 and not frappe.db.exists("Serial No", {"item_code": item_code, "warehouse": source_wh_default, "custom_length": 4820}):
+                                            L = 4850
+                                        for _ in range(best_plan["count"]):
+                                            serial_no = frappe.db.get_value(
+                                                "Serial No",
+                                                {"item_code": item_code, "warehouse": source_wh_default, "custom_length": L},
+                                                "name"
+                                            )
+                                            used_serials.append({
+                                                "serial_no": serial_no,
+                                                "length": d_rem / best_plan["count"],
+                                                "warehouse": source_wh_default
+                                            })
+                                    if best_plan["remainder"] >= 200:
+                                        offcuts_to_create.append({
+                                            "item_code": item_code,
+                                            "remaining_length": best_plan["remainder"],
+                                            "rate": flt(item.get("basic_rate", 0)),
+                                            "fg_selector_name": item_fg_selector_name
+                                        })
+
+                        # Rule 5: Check sibling lengths
+                        if not used_serials and remaining_cuts:
+                            for L, sibling_L in [(2410, 2420), (2420, 2410), (4820, 4850), (4850, 4820)]:
+                                if frappe.db.exists("Serial No", {"item_code": item_code, "warehouse": source_wh_default, "custom_length": sibling_L}):
+                                    serial_no = frappe.db.get_value(
+                                        "Serial No",
+                                        {"item_code": item_code, "warehouse": source_wh_default, "custom_length": sibling_L},
+                                        "name"
+                                    )
+                                    used_serials.append({
+                                        "serial_no": serial_no,
+                                        "length": min(d_rem, sibling_L),
+                                        "warehouse": source_wh_default
+                                    })
+                                    remainder = sibling_L - d_rem
+                                    if remainder >= 200:
+                                        offcuts_to_create.append({
+                                            "item_code": item_code,
+                                            "remaining_length": remainder,
+                                            "rate": flt(item.get("basic_rate", 0)),
+                                            "fg_selector_name": item_fg_selector_name
+                                        })
+                                    break
+                            else:
+                                frappe.log_error(
+                                    message=f"No stock available for {item_code} with required length {d_rem}",
+                                    title="FG Stock Debug"
+                                )
+                                continue
+
+                        # Add items to Stock Entry
+                        total_length = 0
+                        for serial in used_serials:
+                            total_length += flt(serial["length"])
+                            se.append("items", {
+                                "item_code": item_code,
+                                "qty": 1,
+                                "uom": uom,
+                                "stock_uom": uom,
+                                "serial_no": serial["serial_no"],
+                                "s_warehouse": serial["warehouse"],
+                                "t_warehouse": target_wh,
+                                "basic_rate": flt(item.get("basic_rate", 0)),
+                                "valuation_rate": flt(item.get("valuation_rate", 0)),
+                                "custom_length": flt(serial["length"]),
+                                "custom_total_length": flt(serial["length"]),  # Update after all items
+                                "allow_zero_valuation_rate": 0,
+                                "cost_center": "Main - VD",
+                                "project": project
+                            })
+
+                        # Update custom_total_length for the last item
+                        if used_serials:
+                            se.items[-1].custom_total_length = total_length
+
+                        # Create offcut stock entries
+                        for offcut in offcuts_to_create:
+                            if item_fg_selector_name:
+                                create_offcut_stock_entry(
+                                    fg_selector_name=offcut["fg_selector_name"],
+                                    item_code=offcut["item_code"],
+                                    remaining_length=offcut["remaining_length"],
+                                    rate=offcut["rate"]
+                                )
+
+            if not is_length_based or not has_serial_no:
+                # Non-length-based or non-serialized items
+                qty = flt(item.get("qty"))
+                se.append("items", {
+                    "item_code": item_code,
+                    "qty": qty,
+                    "uom": uom,
+                    "stock_uom": uom,
+                    "s_warehouse": source_wh,
+                    "t_warehouse": target_wh,
+                    "basic_rate": flt(item.get("basic_rate")),
+                    "valuation_rate": flt(item.get("valuation_rate")),
+                    "custom_length": 0,
+                    "custom_total_length": 0,
+                    "allow_zero_valuation_rate": 0,
+                    "cost_center": "Main - VD",
+                    "project": project
+                })
+
+        frappe.logger().info(f"Final Stock Entry: {se.as_dict()}")
+        se.insert(ignore_permissions=True)
+        frappe.db.commit()
+        return se.name
+
+    except Exception as e:
+        frappe.log_error(
+            message=f"Error creating Stock Entry: {str(e)}",
+            title="FG Stock Entry Error"
+        )
+        frappe.throw(f"Failed to create Stock Entry: {str(e)}")
 
 def get_actual_qty(item_code, warehouse, uom):
     try:
